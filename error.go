@@ -6,17 +6,17 @@ type Errno int
 
 const (
 /*ErrnoCallback             Errno = 0
-ErrnoHostnameNotResolved  Errno = 1
-ErrnoInternetDisconnected Errno = 2
-ErrnoNetworkChanged       Errno = 3
-ErrnoTimedOut             Errno = 4
-ErrnoConnectionClosed     Errno = 5
-ErrnoConnectionTimedOut   Errno = 6
-ErrnoConnectionRefused    Errno = 7
-ErrnoConnectionReset      Errno = 8
-ErrnoAddressUnreachable   Errno = 9
-ErrnoQuicProtocolFailed   Errno = 10
-ErrnoOther                Errno = 11*/
+  ErrnoHostnameNotResolved  Errno = 1
+  ErrnoInternetDisconnected Errno = 2
+  ErrnoNetworkChanged       Errno = 3
+  ErrnoTimedOut             Errno = 4
+  ErrnoConnectionClosed     Errno = 5
+  ErrnoConnectionTimedOut   Errno = 6
+  ErrnoConnectionRefused    Errno = 7
+  ErrnoConnectionReset      Errno = 8
+  ErrnoAddressUnreachable   Errno = 9
+  ErrnoQuicProtocolFailed   Errno = 10
+  ErrnoOther                Errno = 11*/
 )
 
 func (e Errno) Error() string {
@@ -46,5 +46,5 @@ func (e Errno) Error() string {
 	case ErrnoOther:
 		return "other error"
 	}*/
-	return "unknown error (" + strconv.Itoa(int(e)) + ")"
+	return "error (" + strconv.Itoa(int(e)) + ")"
 }

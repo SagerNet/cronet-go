@@ -16,12 +16,14 @@ func main() {
 
 	params := cronet.NewEngineParameters()
 	params.SetUserAgent("cronet example client")
-	params.SetExperimentalOptions("{\"ssl_key_log_file\": \"/tmp/keys\"}")
+	params.SetExperimentalOptions(`{"ssl_key_log_file": "/tmp/keys"}`)
 
 	engine := cronet.NewEngine(params)
+	engine.StartNetLogToFile("log.json", true)
+
 	streamEngine := engine.StreamEngine()
 
-	httpClient := http.Client{
+	httpClient := &http.Client{
 		Transport: &http.Transport{
 			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 				bidirectionalStream := streamEngine.CreateStream(ctx)
@@ -40,8 +42,10 @@ func main() {
 
 	response, err := httpClient.Get(os.Args[3])
 	if err != nil {
-		logrus.Fatal(err)
+		logrus.Println(err)
+	} else {
+		response.Write(os.Stderr)
 	}
 
-	response.Write(os.Stderr)
+	engine.StopNetLog()
 }

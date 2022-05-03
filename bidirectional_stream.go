@@ -99,38 +99,46 @@ func (s *BidirectionalStream) Start(method string, url string, headers map[strin
 		return os.ErrClosed
 	}
 
+	var headerArray C.bidirectional_stream_header_array
+
 	headerLen := len(headers)
-	cHeadersPtr := C.malloc(C.ulong(int(C.sizeof_struct_bidirectional_stream_header) * headerLen))
-	defer C.free(cHeadersPtr)
+	if headerLen > 0 {
 
-	cHeadersHeader := reflect.SliceHeader{
-		Data: uintptr(cHeadersPtr),
-		Len:  headerLen,
-		Cap:  headerLen,
-	}
+		cHeadersPtr := C.malloc(C.ulong(int(C.sizeof_struct_bidirectional_stream_header) * headerLen))
+		defer C.free(cHeadersPtr)
 
-	cHeaders := *(*[]C.bidirectional_stream_header)(unsafe.Pointer(&cHeadersHeader))
+		cHeadersHeader := reflect.SliceHeader{
+			Data: uintptr(cHeadersPtr),
+			Len:  headerLen,
+			Cap:  headerLen,
+		}
 
-	/*
-		var cType *C.bidirectional_stream_header
-		cType = (*C.bidirectional_stream_header)(cHeadersPtr)
-		cHeaders := unsafe.Slice(cType, headerLen)
-	*/
-	var index int
-	for key, value := range headers {
-		logger.Trace(key, ":", value)
+		cHeaders := *(*[]C.bidirectional_stream_header)(unsafe.Pointer(&cHeadersHeader))
 
-		cKey := C.CString(key)
-		defer C.free(unsafe.Pointer(cKey))
-		cValue := C.CString(value)
-		defer C.free(unsafe.Pointer(cValue))
-		cHeaders[index].key = cKey
-		cHeaders[index].value = cValue
-		index++
-	}
+		/*
+			var cType *C.bidirectional_stream_header
+			cType = (*C.bidirectional_stream_header)(cHeadersPtr)
+			cHeaders := unsafe.Slice(cType, headerLen)
+		*/
+		var index int
+		for key, value := range headers {
+			logger.Trace(key, ":", value)
 
-	headerArray := C.bidirectional_stream_header_array{
-		C.ulong(headerLen), C.ulong(headerLen), &cHeaders[0],
+			cKey := C.CString(key)
+			defer C.free(unsafe.Pointer(cKey))
+			cValue := C.CString(value)
+			defer C.free(unsafe.Pointer(cValue))
+			cHeaders[index].key = cKey
+			cHeaders[index].value = cValue
+			index++
+		}
+		headerArray = C.bidirectional_stream_header_array{
+			C.ulong(headerLen), C.ulong(headerLen), &cHeaders[0],
+		}
+	} else {
+		headerArray = C.bidirectional_stream_header_array{
+			0, 0, nil,
+		}
 	}
 
 	cMethod := C.CString(method)
@@ -161,11 +169,10 @@ func (s *BidirectionalStream) Handshake() chan<- struct{} {
 
 func (s *BidirectionalStream) Read(p []byte) (n int, err error) {
 	select {
-	case <-s.ready:
+	case <-s.handshake:
 		break
 	case <-s.done:
 		return 0, s.err
-	default:
 	}
 
 	s.access.Lock()
@@ -182,7 +189,10 @@ func (s *BidirectionalStream) Read(p []byte) (n int, err error) {
 
 	select {
 	case readN := <-s.read:
-		logger.Trace("ended read, n=", readN)
+		if readN == 0 {
+			s.close(io.EOF)
+			return 0, io.EOF
+		}
 		return readN, nil
 	case <-s.done:
 		return 0, s.err
@@ -191,7 +201,7 @@ func (s *BidirectionalStream) Read(p []byte) (n int, err error) {
 
 func (s *BidirectionalStream) Write(p []byte) (n int, err error) {
 	select {
-	case <-s.handshake: // TODO: change to ready and fix error
+	case <-s.ready:
 		break
 	case <-s.done:
 		return 0, s.err
@@ -393,6 +403,8 @@ func (s *BidirectionalStream) Value(key any) any {
 }
 
 func (s *BidirectionalStream) Close() error {
+	s.access.Lock()
+	defer s.access.Unlock()
 	if s.ptr == nil {
 		return os.ErrClosed
 	}
