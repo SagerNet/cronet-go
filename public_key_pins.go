@@ -1,7 +1,6 @@
 package cronet
 
-// #cgo CFLAGS: -I.
-// #cgo LDFLAGS: -L. -lcronet.100.0.4896.60
+// #cgo LDFLAGS: -lcronet.100.0.4896.60
 // #include <stdlib.h>
 // #include <stdbool.h>
 // #include <cronet_c.h>
@@ -33,13 +32,13 @@ func (p *PublicKeyPins) SetHost(host string) {
 	C.free(unsafe.Pointer(cHost))
 }
 
-func (p *PublicKeyPins) AddPinnedSHa256(hash string) {
+func (p *PublicKeyPins) AddPinnedSHA256(hash string) {
 	cHash := C.CString(hash)
 	C.Cronet_PublicKeyPins_pins_sha256_add(p.ptr, cHash)
 	C.free(unsafe.Pointer(cHash))
 }
 
-func (p *PublicKeyPins) PinnedSha256Len() int {
+func (p *PublicKeyPins) PinnedSHA256Size() int {
 	return int(C.Cronet_PublicKeyPins_pins_sha256_size(p.ptr))
 }
 

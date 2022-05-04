@@ -8,12 +8,12 @@ import (
 	"os"
 
 	"github.com/sagernet/cronet-go"
-	"github.com/sirupsen/logrus"
+	"github.com/sagernet/sing/common/log"
 )
 
-func main() {
-	logrus.SetLevel(logrus.TraceLevel)
+var logger = log.NewLogger("example")
 
+func main() {
 	params := cronet.NewEngineParameters()
 	params.SetUserAgent("cronet example client")
 	params.SetExperimentalOptions(`{"ssl_key_log_file": "/tmp/keys"}`)
@@ -42,7 +42,7 @@ func main() {
 
 	response, err := httpClient.Get(os.Args[3])
 	if err != nil {
-		logrus.Println(err)
+		logger.Error(err)
 	} else {
 		response.Write(os.Stderr)
 	}

@@ -1,7 +1,6 @@
 package cronet
 
-// #cgo CFLAGS: -I.
-// #cgo LDFLAGS: -L. -lcronet.100.0.4896.60
+// #cgo LDFLAGS: -lcronet.100.0.4896.60
 // #include <stdbool.h>
 // #include <stdlib.h>
 // #include "cronet_c.h"
@@ -163,6 +162,14 @@ func (s *BidirectionalStream) Start(method string, url string, headers map[strin
 	return nil
 }
 
+func (s *BidirectionalStream) DisableAutoFlush(disable bool) {
+	C.bidirectional_stream_disable_auto_flush(s.ptr, C.bool(disable))
+}
+
+func (s *BidirectionalStream) DelayHeadersUntilFlush(delay bool) {
+	C.bidirectional_stream_delay_request_headers_until_flush(s.ptr, C.bool(delay))
+}
+
 func (s *BidirectionalStream) Handshake() chan<- struct{} {
 	return s.handshake
 }
@@ -216,7 +223,6 @@ func (s *BidirectionalStream) Write(p []byte) (n int, err error) {
 	}
 
 	C.bidirectional_stream_write(s.ptr, (*C.char)(unsafe.Pointer(&p[0])), C.int(len(p)), false)
-	// C.bidirectional_stream_flush(s.ptr)
 
 	s.access.Unlock()
 
@@ -227,6 +233,47 @@ func (s *BidirectionalStream) Write(p []byte) (n int, err error) {
 	case <-s.done:
 		return 0, s.err
 	}
+}
+
+func (s *BidirectionalStream) WriteDirect(p []byte) (n int, err error) {
+	select {
+	case <-s.ready:
+		break
+	case <-s.done:
+		return 0, s.err
+	}
+
+	s.access.Lock()
+
+	select {
+	case <-s.done:
+		return 0, s.err
+	default:
+	}
+
+	C.bidirectional_stream_write(s.ptr, (*C.char)(unsafe.Pointer(&p[0])), C.int(len(p)), false)
+	s.access.Unlock()
+	return len(p), nil
+}
+
+func (s *BidirectionalStream) WaitForWriteComplete() error {
+	select {
+	case <-s.write:
+		return nil
+	case <-s.done:
+		return s.err
+	}
+}
+
+func (s *BidirectionalStream) Flush() error {
+	select {
+	case <-s.ready:
+		break
+	default:
+		return os.ErrInvalid
+	}
+	C.bidirectional_stream_flush(s.ptr)
+	return nil
 }
 
 //export cronetOnStreamReady
