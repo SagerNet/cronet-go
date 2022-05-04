@@ -19,6 +19,13 @@ func main() {
 	params.SetExperimentalOptions(`{"ssl_key_log_file": "/tmp/keys"}`)
 
 	engine := cronet.NewEngine(params)
+
+	logger.Info("libcronet ", engine.Version())
+
+	if len(os.Args) < 4 {
+		logger.Fatal("missing args")
+	}
+
 	engine.StartNetLogToFile("log.json", true)
 
 	streamEngine := engine.StreamEngine()
@@ -29,7 +36,7 @@ func main() {
 				bidirectionalStream := streamEngine.CreateStream(ctx)
 				err := bidirectionalStream.Start("CONNECT", os.Args[1], map[string]string{
 					"proxy-authorization": "Basic " + base64.StdEncoding.EncodeToString([]byte(os.Args[2])),
-					"_real_authority":     addr,
+					"-connect-authority":  addr,
 				}, 0, false)
 				if err != nil {
 					bidirectionalStream.Close()
@@ -48,4 +55,6 @@ func main() {
 	}
 
 	engine.StopNetLog()
+	engine.Shutdown()
+	engine.Destroy()
 }
