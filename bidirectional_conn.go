@@ -2,14 +2,13 @@ package cronet
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"os"
+	"strconv"
 	"sync"
 	"time"
-
-	"github.com/sagernet/sing/common"
-	E "github.com/sagernet/sing/common/exceptions"
 )
 
 // BidirectionalConn is a wrapper from BidirectionalStream to net.Conn
@@ -173,12 +172,12 @@ func (c *BidirectionalConn) Close() error {
 
 // LocalAddr implements net.Conn
 func (c *BidirectionalConn) LocalAddr() net.Addr {
-	return &common.DummyAddr{}
+	return nil
 }
 
 // RemoteAddr implements net.Conn
 func (c *BidirectionalConn) RemoteAddr() net.Addr {
-	return &common.DummyAddr{}
+	return nil
 }
 
 // SetDeadline implements net.Conn
@@ -261,7 +260,7 @@ func (c *bidirectionalHandler) OnSucceed(stream BidirectionalStream) {
 }
 
 func (c *bidirectionalHandler) OnFailed(stream BidirectionalStream, netError int) {
-	c.Close(stream, E.New("network error ", netError))
+	c.Close(stream, errors.New("network error "+strconv.Itoa(netError)))
 }
 
 func (c *bidirectionalHandler) OnCanceled(stream BidirectionalStream) {

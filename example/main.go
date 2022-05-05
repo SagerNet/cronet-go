@@ -3,15 +3,13 @@ package main
 import (
 	"context"
 	"encoding/base64"
+	"log"
 	"net"
 	"net/http"
 	"os"
 
 	"github.com/sagernet/cronet-go"
-	"github.com/sagernet/sing/common/log"
 )
-
-var logger = log.NewLogger("example")
 
 func main() {
 	params := cronet.NewEngineParameters()
@@ -22,10 +20,10 @@ func main() {
 	engine.StartWithParams(params)
 	params.Destroy()
 
-	logger.Info("libcronet ", engine.Version())
+	log.Println("libcronet ", engine.Version())
 
 	if len(os.Args) < 4 {
-		logger.Fatal("missing args")
+		log.Fatalln("missing args")
 	}
 
 	engine.StartNetLogToFile("log.json", true)
@@ -51,7 +49,7 @@ func main() {
 
 	response, err := httpClient.Get(os.Args[3])
 	if err != nil {
-		logger.Error(err)
+		log.Println(err)
 	} else {
 		response.Write(os.Stderr)
 	}
