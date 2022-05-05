@@ -1,6 +1,6 @@
 # cronet-go
 
-Note: download libcronet.so/libcronet_static.a from naiveproxy release to current directory or /usr/local/lib
+Note: install cronet libraries and headers from naiveproxy release to current directory or /usr/local
 
 
 ```shell
