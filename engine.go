@@ -4,7 +4,11 @@ package cronet
 // #include <stdbool.h>
 // #include <cronet_c.h>
 import "C"
-import "unsafe"
+
+import (
+	"runtime"
+	"unsafe"
+)
 
 type Engine struct {
 	ptr C.Cronet_EnginePtr
@@ -13,13 +17,12 @@ type Engine struct {
 func NewEngine(parameters *EngineParameters) *Engine {
 	cronetEngine := C.Cronet_Engine_Create()
 	C.Cronet_Engine_StartWithParams(cronetEngine, parameters.ptr)
-	parameters.Destroy()
-	return &Engine{
-		cronetEngine,
-	}
+	engine := &Engine{cronetEngine}
+	runtime.SetFinalizer(engine, engine.destroy)
+	return engine
 }
 
-func (e *Engine) Destroy() {
+func (e *Engine) destroy() {
 	C.Cronet_Engine_Destroy(e.ptr)
 }
 

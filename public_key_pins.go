@@ -6,6 +6,7 @@ package cronet
 import "C"
 
 import (
+	"runtime"
 	"unsafe"
 )
 
@@ -14,10 +15,12 @@ type PublicKeyPins struct {
 }
 
 func NewPublicKeyPins() *PublicKeyPins {
-	return &PublicKeyPins{C.Cronet_PublicKeyPins_Create()}
+	pins := &PublicKeyPins{C.Cronet_PublicKeyPins_Create()}
+	runtime.SetFinalizer(pins, pins.destroy)
+	return pins
 }
 
-func (p *PublicKeyPins) Destroy() {
+func (p *PublicKeyPins) destroy() {
 	C.Cronet_PublicKeyPins_Destroy(p.ptr)
 }
 

@@ -4,17 +4,23 @@ package cronet
 // #include <stdbool.h>
 // #include <cronet_c.h>
 import "C"
-import "unsafe"
+
+import (
+	"runtime"
+	"unsafe"
+)
 
 type QuicHint struct {
 	ptr C.Cronet_QuicHintPtr
 }
 
 func NewQuicHint() *QuicHint {
-	return &QuicHint{C.Cronet_QuicHint_Create()}
+	hints := &QuicHint{C.Cronet_QuicHint_Create()}
+	runtime.SetFinalizer(hints, hints.destroy)
+	return hints
 }
 
-func (h *QuicHint) Destroy() {
+func (h *QuicHint) destroy() {
 	C.Cronet_QuicHint_Destroy(h.ptr)
 }
 

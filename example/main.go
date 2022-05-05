@@ -56,5 +56,4 @@ func main() {
 
 	engine.StopNetLog()
 	engine.Shutdown()
-	engine.Destroy()
 }

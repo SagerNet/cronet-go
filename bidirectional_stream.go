@@ -20,6 +20,7 @@ import (
 	"net"
 	"os"
 	"reflect"
+	"runtime"
 	"sync"
 	"time"
 	"unsafe"
@@ -70,6 +71,7 @@ func (e *StreamEngine) CreateStream(ctx context.Context) *BidirectionalStream {
 
 		ptr: C.bidirectional_stream_create(e.ptr, nil, &bidirectionalStreamCallback),
 	}
+	runtime.SetFinalizer(stream, stream.Close)
 	streams[uintptr(unsafe.Pointer(stream.ptr))] = stream
 	return stream
 }

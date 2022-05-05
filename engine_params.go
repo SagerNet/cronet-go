@@ -6,6 +6,7 @@ package cronet
 import "C"
 
 import (
+	"runtime"
 	"unsafe"
 )
 
@@ -14,10 +15,12 @@ type EngineParameters struct {
 }
 
 func NewEngineParameters() *EngineParameters {
-	return &EngineParameters{C.Cronet_EngineParams_Create()}
+	params := &EngineParameters{C.Cronet_EngineParams_Create()}
+	runtime.SetFinalizer(params, params.destroy)
+	return params
 }
 
-func (p *EngineParameters) Destroy() {
+func (p *EngineParameters) destroy() {
 	C.Cronet_EngineParams_Destroy(p.ptr)
 }
 
@@ -110,7 +113,6 @@ func (p *EngineParameters) SetHTTPCacheMaxSize(maxSize int64) {
 
 func (p *EngineParameters) AddQuicHints(element *QuicHint) {
 	C.Cronet_EngineParams_quic_hints_add(p.ptr, element.ptr)
-	element.Destroy()
 }
 
 func (p *EngineParameters) QuicHintsSize() int {
@@ -131,7 +133,6 @@ func (p *EngineParameters) ClearQuicHints() {
 
 func (p *EngineParameters) AddPublicKeyPins(element *PublicKeyPins) {
 	C.Cronet_EngineParams_public_key_pins_add(p.ptr, element.ptr)
-	element.Destroy()
 }
 
 func (p *EngineParameters) PublicKeyPinsSize() int {
