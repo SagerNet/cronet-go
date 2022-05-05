@@ -161,10 +161,6 @@ func (c *BidirectionalConn) Close() error {
 	default:
 	}
 
-	/*	if c.stream.IsDone() {
-		return net.ErrClosed
-	}*/
-
 	close(c.inner.close)
 	c.stream.Cancel()
 	return nil

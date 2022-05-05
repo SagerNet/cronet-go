@@ -157,13 +157,6 @@ func (c BidirectionalStream) Cancel() {
 	C.bidirectional_stream_cancel(c.ptr)
 }
 
-/*// IsDone returns true if the stream was successfully started and is now done
-// (succeeded, canceled, or failed).
-// returns false if the stream is not yet started or is in progress.
-func (c BidirectionalStream) IsDone() bool {
-	return bool(C.bidirectional_stream_is_done(c.ptr))
-}*/
-
 // wire
 
 var (
