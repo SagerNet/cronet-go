@@ -1,8 +1,7 @@
 # cronet-go
 
-Note: download libcronet.so from naiveproxy release to /usr/lib/local or any shared link path
+Note: download libcronet.so/libcronet_static.a from naiveproxy release to current directory or /usr/local/lib
 
-Example:
 
 ```shell
 go build -v -o cronet-example ./example
@@ -10,4 +9,10 @@ go build -v -o cronet-example ./example
 # export PATH="$PATH:$(go env GOPATH)/bin"
 libpack -i cronet-example
 ./cronet-example https://my-naive-server.com username:password https://example.com
+```
+
+Static build:
+
+```shell
+CGO_LDFLAGS_ALLOW="-fuse-ld=lld" CC="clang" go build -x -o cronet-example -tags static ./example
 ```

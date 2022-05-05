@@ -1,6 +1,5 @@
 package cronet
 
-// #cgo LDFLAGS: -lcronet
 // #include <stdbool.h>
 // #include <stdlib.h>
 // #include "cronet_c.h"
