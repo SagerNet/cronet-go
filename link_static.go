@@ -3,5 +3,5 @@
 package cronet
 
 // #cgo CFLAGS: -I/usr/local/include -I.
-// #cgo LDFLAGS: -fuse-ld=lld -Wl,--as-needed -L/usr/local/lib -L. -lcronet_static -ldl -lpthread -lrt -lresolv -latomic -lm
+// #cgo LDFLAGS: -fuse-ld=lld -Wl,--as-needed -L/usr/local/lib -L. -lcronet_static -ldl -lpthread -lrt -lresolv -lm -static
 import "C"
