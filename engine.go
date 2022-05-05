@@ -6,7 +6,6 @@ package cronet
 import "C"
 
 import (
-	"runtime"
 	"unsafe"
 )
 
@@ -14,36 +13,45 @@ type Engine struct {
 	ptr C.Cronet_EnginePtr
 }
 
-func NewEngine(parameters *EngineParameters) *Engine {
-	cronetEngine := C.Cronet_Engine_Create()
-	C.Cronet_Engine_StartWithParams(cronetEngine, parameters.ptr)
-	engine := &Engine{cronetEngine}
-	runtime.SetFinalizer(engine, engine.destroy)
-	return engine
+func NewEngine() Engine {
+	return Engine{C.Cronet_Engine_Create()}
 }
 
-func (e *Engine) destroy() {
+func (e Engine) Destroy() {
 	C.Cronet_Engine_Destroy(e.ptr)
 }
 
-func (e *Engine) StartNetLogToFile(path string, logAll bool) {
-	cPath := C.CString(path)
-	C.Cronet_Engine_StartNetLogToFile(e.ptr, cPath, C.bool(logAll))
-	C.free(unsafe.Pointer(cPath))
+func (e Engine) ClientContext() unsafe.Pointer {
+	return unsafe.Pointer(C.Cronet_Engine_GetClientContext(e.ptr))
 }
 
-func (e *Engine) StopNetLog() {
+func (e Engine) SetClientContext(ctx unsafe.Pointer) {
+	C.Cronet_Engine_SetClientContext(e.ptr, C.Cronet_ClientContext(ctx))
+}
+
+func (e Engine) StartWithParams(params EngineParameters) Result {
+	return Result(C.Cronet_Engine_StartWithParams(e.ptr, params.ptr))
+}
+
+func (e Engine) StartNetLogToFile(path string, logAll bool) bool {
+	cPath := C.CString(path)
+	result := C.Cronet_Engine_StartNetLogToFile(e.ptr, cPath, C.bool(logAll))
+	C.free(unsafe.Pointer(cPath))
+	return bool(result)
+}
+
+func (e Engine) StopNetLog() {
 	C.Cronet_Engine_StopNetLog(e.ptr)
 }
 
-func (e *Engine) Shutdown() {
-	C.Cronet_Engine_Shutdown(e.ptr)
+func (e Engine) Shutdown() Result {
+	return Result(C.Cronet_Engine_Shutdown(e.ptr))
 }
 
-func (e *Engine) Version() string {
+func (e Engine) Version() string {
 	return C.GoString(C.Cronet_Engine_GetVersionString(e.ptr))
 }
 
-func (e *Engine) DefaultUserAgent() string {
+func (e Engine) DefaultUserAgent() string {
 	return C.GoString(C.Cronet_Engine_GetDefaultUserAgent(e.ptr))
 }

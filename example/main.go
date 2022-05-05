@@ -18,7 +18,9 @@ func main() {
 	params.SetUserAgent("cronet example client")
 	params.SetExperimentalOptions(`{"ssl_key_log_file": "/tmp/keys"}`)
 
-	engine := cronet.NewEngine(params)
+	engine := cronet.NewEngine()
+	engine.StartWithParams(params)
+	params.Destroy()
 
 	logger.Info("libcronet ", engine.Version())
 
@@ -56,4 +58,5 @@ func main() {
 
 	engine.StopNetLog()
 	engine.Shutdown()
+	engine.Destroy()
 }

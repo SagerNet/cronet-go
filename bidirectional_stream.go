@@ -2,8 +2,8 @@ package cronet
 
 // #include <stdbool.h>
 // #include <stdlib.h>
-// #include "cronet_c.h"
-// #include "bidirectional_stream_c.h"
+// #include <cronet_c.h>
+// #include <bidirectional_stream_c.h>
 // extern void cronetOnStreamReady(bidirectional_stream* stream);
 // extern void cronetOnResponseHeadersReceived(bidirectional_stream* stream, bidirectional_stream_header_array* headers, char* negotiated_protocol);
 // extern void cronetOnReadCompleted(bidirectional_stream* stream, char* data, int bytes_read);
@@ -21,6 +21,7 @@ import (
 	"os"
 	"reflect"
 	"runtime"
+	"strconv"
 	"sync"
 	"time"
 	"unsafe"
@@ -32,8 +33,8 @@ type StreamEngine struct {
 	ptr *C.stream_engine
 }
 
-func (e *Engine) StreamEngine() *StreamEngine {
-	return &StreamEngine{C.Cronet_Engine_GetStreamEngine(e.ptr)}
+func (e Engine) StreamEngine() StreamEngine {
+	return StreamEngine{C.Cronet_Engine_GetStreamEngine(e.ptr)}
 }
 
 var bidirectionalStreamCallback C.bidirectional_stream_callback
@@ -49,17 +50,22 @@ func init() {
 	bidirectionalStreamCallback.on_canceled = (*[0]byte)(C.cronetOnCanceled)
 }
 
-var streams map[uintptr]*BidirectionalStream
+var (
+	bidirectionalStreamAccess sync.RWMutex
+	bidirectionalStreams      map[uintptr]*BidirectionalStream
+)
 
 func init() {
-	streams = make(map[uintptr]*BidirectionalStream)
+	bidirectionalStreams = make(map[uintptr]*BidirectionalStream)
 }
 
-func instanceOf(stream *C.bidirectional_stream) *BidirectionalStream {
-	return streams[uintptr(unsafe.Pointer(stream))]
+func bidirectionalStreamInstanceOf(stream *C.bidirectional_stream) *BidirectionalStream {
+	bidirectionalStreamAccess.RLock()
+	defer bidirectionalStreamAccess.RUnlock()
+	return bidirectionalStreams[uintptr(unsafe.Pointer(stream))]
 }
 
-func (e *StreamEngine) CreateStream(ctx context.Context) *BidirectionalStream {
+func (e StreamEngine) CreateStream(ctx context.Context) *BidirectionalStream {
 	stream := &BidirectionalStream{
 		ctx: ctx,
 
@@ -72,9 +78,13 @@ func (e *StreamEngine) CreateStream(ctx context.Context) *BidirectionalStream {
 		ptr: C.bidirectional_stream_create(e.ptr, nil, &bidirectionalStreamCallback),
 	}
 	runtime.SetFinalizer(stream, stream.Close)
-	streams[uintptr(unsafe.Pointer(stream.ptr))] = stream
+	bidirectionalStreamAccess.Lock()
+	bidirectionalStreams[uintptr(unsafe.Pointer(stream.ptr))] = stream
+	bidirectionalStreamAccess.Unlock()
 	return stream
 }
+
+// TODO: split BidirectionalStream origin api and BidirectionalConn
 
 type BidirectionalStream struct {
 	ptr    *C.bidirectional_stream
@@ -155,11 +165,10 @@ func (s *BidirectionalStream) Start(method string, url string, headers map[strin
 		", endOfStream=", endOfStream,
 	)
 
-	result := C.bidirectional_stream_start(s.ptr, cURL, C.int(priority), cMethod, &headerArray, C.bool(endOfStream))
-	if result != 0 {
-		logger.Warn("start stream failed: ", Errno(result))
-		return Errno(result)
+	if C.bidirectional_stream_start(s.ptr, cURL, C.int(priority), cMethod, &headerArray, C.bool(endOfStream)) != 0 {
+		return os.ErrInvalid
 	}
+
 	return nil
 }
 
@@ -281,7 +290,7 @@ func (s *BidirectionalStream) Flush() error {
 func cronetOnStreamReady(stream *C.bidirectional_stream) {
 	logger.Trace("on steam ready")
 
-	instance := instanceOf(stream)
+	instance := bidirectionalStreamInstanceOf(stream)
 	if instance == nil {
 		return
 	}
@@ -291,7 +300,7 @@ func cronetOnStreamReady(stream *C.bidirectional_stream) {
 //export cronetOnResponseHeadersReceived
 func cronetOnResponseHeadersReceived(stream *C.bidirectional_stream, headers *C.bidirectional_stream_header_array, negotiatedProtocol *C.char) {
 	// TODO: add api
-	instance := instanceOf(stream)
+	instance := bidirectionalStreamInstanceOf(stream)
 	if instance == nil {
 		return
 	}
@@ -318,7 +327,7 @@ func cronetOnResponseHeadersReceived(stream *C.bidirectional_stream, headers *C.
 func cronetOnReadCompleted(stream *C.bidirectional_stream, data *C.char, bytesRead C.int) {
 	logger.Trace("on read completed")
 
-	instance := instanceOf(stream)
+	instance := bidirectionalStreamInstanceOf(stream)
 	if instance == nil {
 		return
 	}
@@ -340,7 +349,7 @@ func cronetOnReadCompleted(stream *C.bidirectional_stream, data *C.char, bytesRe
 func cronetOnWriteCompleted(stream *C.bidirectional_stream, data *C.char) {
 	logger.Trace("on write completed")
 
-	instance := instanceOf(stream)
+	instance := bidirectionalStreamInstanceOf(stream)
 	if instance == nil {
 		return
 	}
@@ -382,7 +391,7 @@ func cronetOnResponseTrailersReceived(stream *C.bidirectional_stream, trailers *
 func cronetOnSucceed(stream *C.bidirectional_stream) {
 	logger.Trace("on succeed")
 
-	instance := instanceOf(stream)
+	instance := bidirectionalStreamInstanceOf(stream)
 	if instance == nil {
 		return
 	}
@@ -392,21 +401,27 @@ func cronetOnSucceed(stream *C.bidirectional_stream) {
 
 //export cronetOnFailed
 func cronetOnFailed(stream *C.bidirectional_stream, netError C.int) {
-	logger.Trace("on failed, error=", Errno(netError))
+	logger.Trace("on failed, error=", networkError(netError))
 
-	instance := instanceOf(stream)
+	instance := bidirectionalStreamInstanceOf(stream)
 	if instance == nil {
 		return
 	}
 
-	instance.close(Errno(netError))
+	instance.close(networkError(netError))
+}
+
+type networkError int
+
+func (e networkError) Error() string {
+	return "network error " + strconv.Itoa(int(e))
 }
 
 //export cronetOnCanceled
 func cronetOnCanceled(stream *C.bidirectional_stream) {
 	logger.Trace("on canceled")
 
-	instance := instanceOf(stream)
+	instance := bidirectionalStreamInstanceOf(stream)
 	if instance == nil {
 		return
 	}
@@ -429,7 +444,9 @@ func (s *BidirectionalStream) close(err error) {
 	s.err = err
 	close(s.done)
 
-	delete(streams, uintptr(unsafe.Pointer(s.ptr)))
+	bidirectionalStreamAccess.Lock()
+	delete(bidirectionalStreams, uintptr(unsafe.Pointer(s.ptr)))
+	bidirectionalStreamAccess.Unlock()
 	C.bidirectional_stream_destroy(s.ptr)
 	s.ptr = nil
 }
