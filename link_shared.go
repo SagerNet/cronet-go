@@ -2,6 +2,6 @@
 
 package cronet
 
-// #cgo CFLAGS: -I/usr/local/include -I.
-// #cgo LDFLAGS: -L/usr/local/lib -L. -lcronet
+// #cgo CFLAGS: -I.
+// #cgo LDFLAGS: -L. -lcronet
 import "C"
