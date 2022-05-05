@@ -35,16 +35,16 @@ func main() {
 	httpClient := &http.Client{
 		Transport: &http.Transport{
 			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-				bidirectionalStream := streamEngine.CreateStream(ctx)
-				err := bidirectionalStream.Start("CONNECT", os.Args[1], map[string]string{
+				conn := streamEngine.CreateConn(true, false)
+				err := conn.Start("CONNECT", os.Args[1], map[string]string{
 					"proxy-authorization": "Basic " + base64.StdEncoding.EncodeToString([]byte(os.Args[2])),
 					"-connect-authority":  addr,
 				}, 0, false)
 				if err != nil {
-					bidirectionalStream.Close()
+					conn.Close()
 					return nil, err
 				}
-				return bidirectionalStream, nil
+				return conn, nil
 			},
 		},
 	}

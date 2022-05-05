@@ -4,29 +4,19 @@ package cronet
 // #include <stdlib.h>
 // #include <cronet_c.h>
 // #include <bidirectional_stream_c.h>
-// extern void cronetOnStreamReady(bidirectional_stream* stream);
-// extern void cronetOnResponseHeadersReceived(bidirectional_stream* stream, bidirectional_stream_header_array* headers, char* negotiated_protocol);
-// extern void cronetOnReadCompleted(bidirectional_stream* stream, char* data, int bytes_read);
-// extern void cronetOnWriteCompleted(bidirectional_stream* stream, char* data);
-// extern void cronetOnResponseTrailersReceived(bidirectional_stream* stream, bidirectional_stream_header_array* trailers);
-// extern void cronetOnSucceed(bidirectional_stream* stream);
-// extern void cronetOnFailed(bidirectional_stream* stream, int net_error);
-// extern void cronetOnCanceled(bidirectional_stream* stream);
+// extern void cronetBidirectionalStreamOnStreamReady(bidirectional_stream* stream);
+// extern void cronetBidirectionalStreamOnResponseHeadersReceived(bidirectional_stream* stream, bidirectional_stream_header_array* headers, char* negotiated_protocol);
+// extern void cronetBidirectionalStreamOnReadCompleted(bidirectional_stream* stream, char* data, int bytes_read);
+// extern void cronetBidirectionalStreamOnWriteCompleted(bidirectional_stream* stream, char* data);
+// extern void cronetBidirectionalStreamOnResponseTrailersReceived(bidirectional_stream* stream, bidirectional_stream_header_array* trailers);
+// extern void cronetBidirectionalStreamOnSucceed(bidirectional_stream* stream);
+// extern void cronetBidirectionalStreamOnFailed(bidirectional_stream* stream, int net_error);
+// extern void cronetBidirectionalStreamOnCanceled(bidirectional_stream* stream);
 import "C"
 
 import (
-	"context"
-	"io"
-	"net"
-	"os"
-	"reflect"
-	"runtime"
-	"strconv"
 	"sync"
-	"time"
 	"unsafe"
-
-	"github.com/sagernet/sing/common"
 )
 
 type StreamEngine struct {
@@ -37,103 +27,70 @@ func (e Engine) StreamEngine() StreamEngine {
 	return StreamEngine{C.Cronet_Engine_GetStreamEngine(e.ptr)}
 }
 
-var bidirectionalStreamCallback C.bidirectional_stream_callback
-
-func init() {
-	bidirectionalStreamCallback.on_stream_ready = (*[0]byte)(C.cronetOnStreamReady)
-	bidirectionalStreamCallback.on_response_headers_received = (*[0]byte)(C.cronetOnResponseHeadersReceived)
-	bidirectionalStreamCallback.on_read_completed = (*[0]byte)(C.cronetOnReadCompleted)
-	bidirectionalStreamCallback.on_write_completed = (*[0]byte)(C.cronetOnWriteCompleted)
-	bidirectionalStreamCallback.on_response_trailers_received = (*[0]byte)(C.cronetOnResponseTrailersReceived)
-	bidirectionalStreamCallback.on_succeded = (*[0]byte)(C.cronetOnSucceed)
-	bidirectionalStreamCallback.on_failed = (*[0]byte)(C.cronetOnFailed)
-	bidirectionalStreamCallback.on_canceled = (*[0]byte)(C.cronetOnCanceled)
+type BidirectionalStreamCallback interface {
+	OnStreamReady(stream BidirectionalStream)
+	OnResponseHeadersReceived(stream BidirectionalStream, headers map[string]string, negotiatedProtocol string)
+	OnReadCompleted(stream BidirectionalStream, bytesRead int)
+	OnWriteCompleted(stream BidirectionalStream)
+	OnResponseTrailersReceived(stream BidirectionalStream, trailers map[string]string)
+	OnSucceed(stream BidirectionalStream)
+	OnFailed(stream BidirectionalStream, netError int)
+	OnCanceled(stream BidirectionalStream)
 }
-
-var (
-	bidirectionalStreamAccess sync.RWMutex
-	bidirectionalStreams      map[uintptr]*BidirectionalStream
-)
-
-func init() {
-	bidirectionalStreams = make(map[uintptr]*BidirectionalStream)
-}
-
-func bidirectionalStreamInstanceOf(stream *C.bidirectional_stream) *BidirectionalStream {
-	bidirectionalStreamAccess.RLock()
-	defer bidirectionalStreamAccess.RUnlock()
-	return bidirectionalStreams[uintptr(unsafe.Pointer(stream))]
-}
-
-func (e StreamEngine) CreateStream(ctx context.Context) *BidirectionalStream {
-	stream := &BidirectionalStream{
-		ctx: ctx,
-
-		done:      make(chan struct{}),
-		ready:     make(chan struct{}),
-		handshake: make(chan struct{}),
-		read:      make(chan int),
-		write:     make(chan struct{}),
-
-		ptr: C.bidirectional_stream_create(e.ptr, nil, &bidirectionalStreamCallback),
-	}
-	runtime.SetFinalizer(stream, stream.Close)
-	bidirectionalStreamAccess.Lock()
-	bidirectionalStreams[uintptr(unsafe.Pointer(stream.ptr))] = stream
-	bidirectionalStreamAccess.Unlock()
-	return stream
-}
-
-// TODO: split BidirectionalStream origin api and BidirectionalConn
 
 type BidirectionalStream struct {
-	ptr    *C.bidirectional_stream
-	access sync.Mutex
-
-	ctx  context.Context
-	done chan struct{}
-	err  error
-
-	ready chan struct{}
-
-	handshake       chan struct{}
-	responseHeaders map[string]string
-
-	read  chan int
-	write chan struct{}
+	ptr *C.bidirectional_stream
 }
 
+func (e StreamEngine) CreateStream(callback BidirectionalStreamCallback) BidirectionalStream {
+	ptr := C.bidirectional_stream_create(e.ptr, nil, &bidirectionalStreamCallback)
+	bidirectionalStreamAccess.Lock()
+	bidirectionalStreamMap[uintptr(unsafe.Pointer(ptr))] = callback
+	bidirectionalStreamAccess.Unlock()
+	return BidirectionalStream{ptr}
+}
+
+// Destroy destroys stream object. Destroy could be called from any thread, including
+// network thread, but is posted, so |stream| is valid until calling task is
+// complete.
+func (c BidirectionalStream) Destroy() bool {
+	bidirectionalStreamAccess.Lock()
+	delete(bidirectionalStreamMap, uintptr(unsafe.Pointer(c.ptr)))
+	bidirectionalStreamAccess.Unlock()
+	return C.bidirectional_stream_destroy(c.ptr) == 0
+}
+
+// DisableAutoFlush disables or enables auto flush. By default, data is flushed after
+// every Write(). If the auto flush is disabled,
+// the client should explicitly call Flush() to flush
+// the data.
+func (c BidirectionalStream) DisableAutoFlush(disable bool) {
+	C.bidirectional_stream_disable_auto_flush(c.ptr, C.bool(disable))
+}
+
+// DelayRequestHeadersUntilFlush delays sending request headers until Flush()
+// is called. This flag is currently only respected when QUIC is negotiated.
+// When true, QUIC will send request header frame along with data frame(s)
+// as a single packet when possible.
+func (c BidirectionalStream) DelayRequestHeadersUntilFlush(delay bool) {
+	C.bidirectional_stream_delay_request_headers_until_flush(c.ptr, C.bool(delay))
+}
+
+// Start starts the stream by sending request to |url| using |method| and |headers|.
+// If |endOfStream| is true, then no data is expected to be written. The
+// |method| is HTTP verb.
 //noinspection GoDeferInLoop
-func (s *BidirectionalStream) Start(method string, url string, headers map[string]string, priority int, endOfStream bool) error {
-	if s.ptr == nil {
-		return os.ErrClosed
-	}
-
+func (c BidirectionalStream) Start(method string, url string, headers map[string]string, priority int, endOfStream bool) bool {
 	var headerArray C.bidirectional_stream_header_array
-
 	headerLen := len(headers)
 	if headerLen > 0 {
-
 		cHeadersPtr := C.malloc(C.ulong(int(C.sizeof_struct_bidirectional_stream_header) * headerLen))
 		defer C.free(cHeadersPtr)
-
-		cHeadersHeader := reflect.SliceHeader{
-			Data: uintptr(cHeadersPtr),
-			Len:  headerLen,
-			Cap:  headerLen,
-		}
-
-		cHeaders := *(*[]C.bidirectional_stream_header)(unsafe.Pointer(&cHeadersHeader))
-
-		/*
-			var cType *C.bidirectional_stream_header
-			cType = (*C.bidirectional_stream_header)(cHeadersPtr)
-			cHeaders := unsafe.Slice(cType, headerLen)
-		*/
+		var cType *C.bidirectional_stream_header
+		cType = (*C.bidirectional_stream_header)(cHeadersPtr)
+		cHeaders := unsafe.Slice(cType, headerLen)
 		var index int
 		for key, value := range headers {
-			logger.Trace(key, ":", value)
-
 			cKey := C.CString(key)
 			defer C.free(unsafe.Pointer(cKey))
 			cValue := C.CString(value)
@@ -145,10 +102,6 @@ func (s *BidirectionalStream) Start(method string, url string, headers map[strin
 		headerArray = C.bidirectional_stream_header_array{
 			C.ulong(headerLen), C.ulong(headerLen), &cHeaders[0],
 		}
-	} else {
-		headerArray = C.bidirectional_stream_header_array{
-			0, 0, nil,
-		}
 	}
 
 	cMethod := C.CString(method)
@@ -157,342 +110,176 @@ func (s *BidirectionalStream) Start(method string, url string, headers map[strin
 	cURL := C.CString(url)
 	defer C.free(unsafe.Pointer(cURL))
 
-	logger.Trace("start stream ", uintptr(unsafe.Pointer(s.ptr)),
-		", url=", url,
-		", priority=", priority,
-		", method=", method,
-		", headers=", headers,
-		", endOfStream=", endOfStream,
-	)
-
-	if C.bidirectional_stream_start(s.ptr, cURL, C.int(priority), cMethod, &headerArray, C.bool(endOfStream)) != 0 {
-		return os.ErrInvalid
-	}
-
-	return nil
+	return C.bidirectional_stream_start(c.ptr, cURL, C.int(priority), cMethod, &headerArray, C.bool(endOfStream)) == 0
 }
 
-func (s *BidirectionalStream) DisableAutoFlush(disable bool) {
-	C.bidirectional_stream_disable_auto_flush(s.ptr, C.bool(disable))
+// Read reads response data into |buffer|. Must only be called
+// at most once in response to each invocation of the
+// OnStreamReady()/OnResponseHeaderReceived() and OnReadCompleted()
+// methods of the BidirectionalStreamCallback.
+// Each call will result in an invocation of the callback's
+// OnReadCompleted() method if data is read, or its OnFailed() method if
+// there's an error. The callback's OnSucceed() method is also invoked if
+// there is no more data to read and |end_of_stream| was previously sent.
+func (c BidirectionalStream) Read(buffer []byte) int {
+	return int(C.bidirectional_stream_read(c.ptr, (*C.char)((unsafe.Pointer)(&buffer[0])), C.int(len(buffer))))
 }
 
-func (s *BidirectionalStream) DelayHeadersUntilFlush(delay bool) {
-	C.bidirectional_stream_delay_request_headers_until_flush(s.ptr, C.bool(delay))
+// Write Writes request data from |buffer| If auto flush is
+// disabled, data will be sent only after Flush() is
+// called.
+// Each call will result in an invocation the callback's OnWriteCompleted()
+// method if data is sent, or its OnFailed() method if there's an error.
+// The callback's OnSucceed() method is also invoked if |endOfStream| is
+// set and all response data has been read.
+func (c BidirectionalStream) Write(buffer []byte, endOfStream bool) int {
+	return int(C.bidirectional_stream_write(c.ptr, (*C.char)(unsafe.Pointer(&buffer[0])), C.int(len(buffer)), C.bool(endOfStream)))
 }
 
-func (s *BidirectionalStream) Handshake() chan<- struct{} {
-	return s.handshake
+// Flush Flushes pending writes. This method should not be called before invocation of
+// OnStreamReady() method of the BidirectionalStreamCallback.
+// For each previously called Write()
+// a corresponding OnWriteCompleted() callback will be invoked when the buffer
+// is sent.BidirectionalStream
+func (c BidirectionalStream) Flush() {
+	C.bidirectional_stream_flush(c.ptr)
 }
 
-func (s *BidirectionalStream) Read(p []byte) (n int, err error) {
-	select {
-	case <-s.handshake:
-		break
-	case <-s.done:
-		return 0, s.err
-	}
-
-	s.access.Lock()
-
-	select {
-	case <-s.done:
-		return 0, s.err
-	default:
-	}
-
-	C.bidirectional_stream_read(s.ptr, (*C.char)((unsafe.Pointer)(&p[0])), C.int(len(p)))
-
-	s.access.Unlock()
-
-	select {
-	case readN := <-s.read:
-		if readN == 0 {
-			s.close(io.EOF)
-			return 0, io.EOF
-		}
-		return readN, nil
-	case <-s.done:
-		return 0, s.err
-	}
+// Cancel cancels the stream. Can be called at any time after
+// Start(). The OnCanceled() method of
+// BidirectionalStreamCallback will be invoked when cancellation
+// is complete and no further callback methods will be invoked. If the
+// stream has completed or has not started, calling
+// Cancel() has no effect and OnCanceled() will not
+// be invoked. At most one callback method may be invoked after
+// Cancel() has completed.
+func (c BidirectionalStream) Cancel() {
+	C.bidirectional_stream_cancel(c.ptr)
 }
 
-func (s *BidirectionalStream) Write(p []byte) (n int, err error) {
-	select {
-	case <-s.ready:
-		break
-	case <-s.done:
-		return 0, s.err
-	}
+/*// IsDone returns true if the stream was successfully started and is now done
+// (succeeded, canceled, or failed).
+// returns false if the stream is not yet started or is in progress.
+func (c BidirectionalStream) IsDone() bool {
+	return bool(C.bidirectional_stream_is_done(c.ptr))
+}*/
 
-	s.access.Lock()
+// wire
 
-	select {
-	case <-s.done:
-		return 0, s.err
-	default:
-	}
+var (
+	bidirectionalStreamAccess   sync.RWMutex
+	bidirectionalStreamMap      map[uintptr]BidirectionalStreamCallback
+	bidirectionalStreamCallback C.bidirectional_stream_callback
+)
 
-	C.bidirectional_stream_write(s.ptr, (*C.char)(unsafe.Pointer(&p[0])), C.int(len(p)), false)
-
-	s.access.Unlock()
-
-	select {
-	case <-s.write:
-		logger.Trace("ended write")
-		return len(p), nil
-	case <-s.done:
-		return 0, s.err
-	}
+func init() {
+	bidirectionalStreamMap = make(map[uintptr]BidirectionalStreamCallback)
+	bidirectionalStreamCallback.on_stream_ready = (*[0]byte)(C.cronetBidirectionalStreamOnStreamReady)
+	bidirectionalStreamCallback.on_response_headers_received = (*[0]byte)(C.cronetBidirectionalStreamOnResponseHeadersReceived)
+	bidirectionalStreamCallback.on_read_completed = (*[0]byte)(C.cronetBidirectionalStreamOnReadCompleted)
+	bidirectionalStreamCallback.on_write_completed = (*[0]byte)(C.cronetBidirectionalStreamOnWriteCompleted)
+	bidirectionalStreamCallback.on_response_trailers_received = (*[0]byte)(C.cronetBidirectionalStreamOnResponseTrailersReceived)
+	bidirectionalStreamCallback.on_succeded = (*[0]byte)(C.cronetBidirectionalStreamOnSucceed)
+	bidirectionalStreamCallback.on_failed = (*[0]byte)(C.cronetBidirectionalStreamOnFailed)
+	bidirectionalStreamCallback.on_canceled = (*[0]byte)(C.cronetBidirectionalStreamOnCanceled)
 }
 
-func (s *BidirectionalStream) WriteDirect(p []byte) (n int, err error) {
-	select {
-	case <-s.ready:
-		break
-	case <-s.done:
-		return 0, s.err
-	}
-
-	s.access.Lock()
-
-	select {
-	case <-s.done:
-		return 0, s.err
-	default:
-	}
-
-	C.bidirectional_stream_write(s.ptr, (*C.char)(unsafe.Pointer(&p[0])), C.int(len(p)), false)
-	s.access.Unlock()
-	return len(p), nil
+func instanceOfBidirectionalStream(stream *C.bidirectional_stream) BidirectionalStreamCallback {
+	bidirectionalStreamAccess.RLock()
+	defer bidirectionalStreamAccess.RUnlock()
+	return bidirectionalStreamMap[uintptr(unsafe.Pointer(stream))]
 }
 
-func (s *BidirectionalStream) WaitForWriteComplete() error {
-	select {
-	case <-s.write:
-		return nil
-	case <-s.done:
-		return s.err
-	}
-}
-
-func (s *BidirectionalStream) Flush() error {
-	select {
-	case <-s.ready:
-		break
-	default:
-		return os.ErrInvalid
-	}
-	C.bidirectional_stream_flush(s.ptr)
-	return nil
-}
-
-//export cronetOnStreamReady
-func cronetOnStreamReady(stream *C.bidirectional_stream) {
-	logger.Trace("on steam ready")
-
-	instance := bidirectionalStreamInstanceOf(stream)
-	if instance == nil {
+//export cronetBidirectionalStreamOnStreamReady
+func cronetBidirectionalStreamOnStreamReady(stream *C.bidirectional_stream) {
+	callback := instanceOfBidirectionalStream(stream)
+	if callback == nil {
 		return
 	}
-	close(instance.ready)
+	callback.OnStreamReady(BidirectionalStream{stream})
 }
 
-//export cronetOnResponseHeadersReceived
-func cronetOnResponseHeadersReceived(stream *C.bidirectional_stream, headers *C.bidirectional_stream_header_array, negotiatedProtocol *C.char) {
-	// TODO: add api
-	instance := bidirectionalStreamInstanceOf(stream)
-	if instance == nil {
+//export cronetBidirectionalStreamOnResponseHeadersReceived
+func cronetBidirectionalStreamOnResponseHeadersReceived(stream *C.bidirectional_stream, headers *C.bidirectional_stream_header_array, negotiatedProtocol *C.char) {
+	callback := instanceOfBidirectionalStream(stream)
+	if callback == nil {
 		return
 	}
-
-	close(instance.handshake)
-
-	logger.Trace("on response headers, negotiated_protocol=", C.GoString(negotiatedProtocol))
-
+	headerMap := make(map[string]string, int(headers.count))
 	var hdrP *C.bidirectional_stream_header
 	hdrP = headers.headers
-
 	headersSlice := unsafe.Slice(hdrP, int(headers.count))
 	for _, header := range headersSlice {
 		key := C.GoString(header.key)
 		if len(key) == 0 {
 			continue
 		}
-		value := C.GoString(header.value)
-		logger.Trace(key, ": ", value)
+		headerMap[key] = C.GoString(header.value)
 	}
+	callback.OnResponseHeadersReceived(BidirectionalStream{stream}, headerMap, C.GoString(negotiatedProtocol))
 }
 
-//export cronetOnReadCompleted
-func cronetOnReadCompleted(stream *C.bidirectional_stream, data *C.char, bytesRead C.int) {
-	logger.Trace("on read completed")
-
-	instance := bidirectionalStreamInstanceOf(stream)
-	if instance == nil {
+//export cronetBidirectionalStreamOnReadCompleted
+func cronetBidirectionalStreamOnReadCompleted(stream *C.bidirectional_stream, data *C.char, bytesRead C.int) {
+	callback := instanceOfBidirectionalStream(stream)
+	if callback == nil {
 		return
 	}
-
-	instance.access.Lock()
-	defer instance.access.Unlock()
-
-	if instance.err != nil {
-		return
-	}
-
-	select {
-	case <-instance.done:
-	case instance.read <- int(bytesRead):
-	}
+	callback.OnReadCompleted(BidirectionalStream{stream}, int(bytesRead))
 }
 
-//export cronetOnWriteCompleted
-func cronetOnWriteCompleted(stream *C.bidirectional_stream, data *C.char) {
-	logger.Trace("on write completed")
-
-	instance := bidirectionalStreamInstanceOf(stream)
-	if instance == nil {
+//export cronetBidirectionalStreamOnWriteCompleted
+func cronetBidirectionalStreamOnWriteCompleted(stream *C.bidirectional_stream, data *C.char) {
+	callback := instanceOfBidirectionalStream(stream)
+	if callback == nil {
 		return
 	}
-
-	instance.access.Lock()
-	defer instance.access.Unlock()
-
-	if instance.err != nil {
-		return
-	}
-
-	select {
-	case <-instance.done:
-	case instance.write <- struct{}{}:
-	}
+	callback.OnWriteCompleted(BidirectionalStream{stream})
 }
 
-//export cronetOnResponseTrailersReceived
-func cronetOnResponseTrailersReceived(stream *C.bidirectional_stream, trailers *C.bidirectional_stream_header_array) {
-	// TODO: add api
-
-	logger.Trace("on response trailers received")
-
+//export cronetBidirectionalStreamOnResponseTrailersReceived
+func cronetBidirectionalStreamOnResponseTrailersReceived(stream *C.bidirectional_stream, trailers *C.bidirectional_stream_header_array) {
+	callback := instanceOfBidirectionalStream(stream)
+	if callback == nil {
+		return
+	}
+	trailersMap := make(map[string]string, int(trailers.count))
 	var hdrP *C.bidirectional_stream_header
 	hdrP = trailers.headers
-
 	headersSlice := unsafe.Slice(hdrP, int(trailers.count))
 	for _, header := range headersSlice {
 		key := C.GoString(header.key)
 		if len(key) == 0 {
 			continue
 		}
-		value := C.GoString(header.value)
-		logger.Trace(key, ": ", value)
+		trailersMap[key] = C.GoString(header.value)
 	}
+	callback.OnResponseTrailersReceived(BidirectionalStream{stream}, trailersMap)
 }
 
-//export cronetOnSucceed
-func cronetOnSucceed(stream *C.bidirectional_stream) {
-	logger.Trace("on succeed")
-
-	instance := bidirectionalStreamInstanceOf(stream)
-	if instance == nil {
+//export cronetBidirectionalStreamOnSucceed
+func cronetBidirectionalStreamOnSucceed(stream *C.bidirectional_stream) {
+	callback := instanceOfBidirectionalStream(stream)
+	if callback == nil {
 		return
 	}
-
-	instance.close(io.EOF)
+	callback.OnSucceed(BidirectionalStream{stream})
 }
 
-//export cronetOnFailed
-func cronetOnFailed(stream *C.bidirectional_stream, netError C.int) {
-	logger.Trace("on failed, error=", networkError(netError))
-
-	instance := bidirectionalStreamInstanceOf(stream)
-	if instance == nil {
+//export cronetBidirectionalStreamOnFailed
+func cronetBidirectionalStreamOnFailed(stream *C.bidirectional_stream, netError C.int) {
+	callback := instanceOfBidirectionalStream(stream)
+	if callback == nil {
 		return
 	}
-
-	instance.close(networkError(netError))
+	callback.OnFailed(BidirectionalStream{stream}, int(netError))
 }
 
-type networkError int
-
-func (e networkError) Error() string {
-	return "network error " + strconv.Itoa(int(e))
-}
-
-//export cronetOnCanceled
-func cronetOnCanceled(stream *C.bidirectional_stream) {
-	logger.Trace("on canceled")
-
-	instance := bidirectionalStreamInstanceOf(stream)
-	if instance == nil {
+//export cronetBidirectionalStreamOnCanceled
+func cronetBidirectionalStreamOnCanceled(stream *C.bidirectional_stream) {
+	callback := instanceOfBidirectionalStream(stream)
+	if callback == nil {
 		return
 	}
-
-	instance.close(context.Canceled)
-}
-
-func (s *BidirectionalStream) close(err error) {
-	if s.err != nil {
-		return
-	}
-
-	s.access.Lock()
-	defer s.access.Unlock()
-
-	if s.err != nil {
-		return
-	}
-
-	s.err = err
-	close(s.done)
-
-	bidirectionalStreamAccess.Lock()
-	delete(bidirectionalStreams, uintptr(unsafe.Pointer(s.ptr)))
-	bidirectionalStreamAccess.Unlock()
-	C.bidirectional_stream_destroy(s.ptr)
-	s.ptr = nil
-}
-
-func (s *BidirectionalStream) Done() <-chan struct{} {
-	return s.done
-}
-
-func (s *BidirectionalStream) Err() error {
-	return s.err
-}
-
-func (s *BidirectionalStream) Deadline() (deadline time.Time, ok bool) {
-	return s.ctx.Deadline()
-}
-
-func (s *BidirectionalStream) Value(key any) any {
-	return s.ctx.Value(key)
-}
-
-func (s *BidirectionalStream) Close() error {
-	s.access.Lock()
-	defer s.access.Unlock()
-	if s.ptr == nil {
-		return os.ErrClosed
-	}
-	C.bidirectional_stream_cancel(s.ptr)
-	return nil
-}
-
-func (s *BidirectionalStream) LocalAddr() net.Addr {
-	return &common.DummyAddr{}
-}
-
-func (s *BidirectionalStream) RemoteAddr() net.Addr {
-	return &common.DummyAddr{}
-}
-
-func (s *BidirectionalStream) SetDeadline(t time.Time) error {
-	return os.ErrInvalid
-}
-
-func (s *BidirectionalStream) SetReadDeadline(t time.Time) error {
-	return os.ErrInvalid
-}
-
-func (s *BidirectionalStream) SetWriteDeadline(t time.Time) error {
-	return os.ErrInvalid
+	callback.OnCanceled(BidirectionalStream{stream})
 }
