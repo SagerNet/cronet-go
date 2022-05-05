@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/google/go-github/v44/github"
 	"github.com/klauspost/compress/zip"
@@ -134,9 +135,10 @@ func main() {
 
 	var args []string
 	args = append(args, "build")
-	args = append(args, "-v", "-x")
+	args = append(args, "-v")
 	args = append(args, "-o", "cronet-example")
 	args = append(args, "-gcflags", "-c "+strconv.Itoa(runtime.NumCPU()))
+	args = append(args, os.Args[1:]...)
 	args = append(args, "./example")
 
 	err := run("go", args...)
@@ -146,36 +148,36 @@ func main() {
 }
 
 func run(name string, args ...string) error {
-	command := exec.Command(name, args...)
-	command.Stdout = os.Stdout
-	command.Stderr = os.Stderr
-	command.Env = os.Environ()
-
-	return command.Run()
+	path, _ := exec.LookPath(name)
+	args = append([]string{path}, args...)
+	return syscall.Exec(path, args, os.Environ())
 }
 
 func naiveOsString() string {
-	var os string
-	var arch string
-	switch runtime.GOOS {
+	goos := os.Getenv("GOOS")
+	if goos == "" {
+		goos = runtime.GOOS
+	}
+	goarch := os.Getenv("GOARCH")
+	if goarch == "" {
+		goarch = runtime.GOARCH
+	}
+
+	switch goos {
 	case "windows":
-		os = "win"
+		goos = "win"
 	case "darwin":
-		os = "mac"
-	default:
-		os = runtime.GOOS
+		goos = "mac"
 	}
-	switch runtime.GOARCH {
+	switch goarch {
 	case "amd64":
-		arch = "x64"
+		goarch = "x64"
 	case "386":
-		arch = "x86"
+		goarch = "x86"
 	case "mipsle":
-		arch = "mipsel"
+		goarch = "mipsel"
 	case "mips64le":
-		arch = "mips64el"
-	default:
-		arch = runtime.GOARCH
+		goarch = "mips64el"
 	}
-	return os + "-" + arch
+	return goos + "-" + goarch
 }

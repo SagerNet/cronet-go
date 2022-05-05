@@ -84,7 +84,7 @@ func (c BidirectionalStream) Start(method string, url string, headers map[string
 	var headerArray C.bidirectional_stream_header_array
 	headerLen := len(headers)
 	if headerLen > 0 {
-		cHeadersPtr := C.malloc(C.ulong(int(C.sizeof_struct_bidirectional_stream_header) * headerLen))
+		cHeadersPtr := C.malloc(C.size_t(int(C.sizeof_struct_bidirectional_stream_header) * headerLen))
 		defer C.free(cHeadersPtr)
 		var cType *C.bidirectional_stream_header
 		cType = (*C.bidirectional_stream_header)(cHeadersPtr)
@@ -100,7 +100,7 @@ func (c BidirectionalStream) Start(method string, url string, headers map[string
 			index++
 		}
 		headerArray = C.bidirectional_stream_header_array{
-			C.ulong(headerLen), C.ulong(headerLen), &cHeaders[0],
+			C.size_t(headerLen), C.size_t(headerLen), &cHeaders[0],
 		}
 	}
 

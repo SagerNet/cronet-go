@@ -1,0 +1,74 @@
+name: Debug build
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
+      - '.github/**'
+      - '!.github/workflows/debug.yml'
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    name: Local build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+      - name: Install Golang
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.18.1
+      - name: Build
+        run: |
+          pushd build
+          go build -v .
+          popd
+          ./build/build
+  cross:
+    name: Cross Build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: 386
+            pkg: gcc-multilib
+            cc: gcc
+          - goos: linux
+            goarch: arm64
+            pkg: gcc-aarch64-linux-gnu libc-dev-arm64-cross
+            cc: aarch64-linux-gnu-gcc
+          - goos: linux
+            goarch: arm
+            pkg: gcc-arm-linux-gnueabihf libc-dev-armhf-cross
+            cc: arm-linux-gnueabihf-gcc
+      fail-fast: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+      - name: Install Golang
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.18.1
+      - name: Prebuild
+        run: |
+          sudo apt-get install -y ${{ matrix.pkg }}
+          pushd build
+          go build -v .
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CC: ${{ matrix.cc }}
+          CGO_ENABLED: 1
+        run: |
+          ./build/build
