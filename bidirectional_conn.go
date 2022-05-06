@@ -66,11 +66,15 @@ func (c *BidirectionalConn) Read(p []byte) (n int, err error) {
 		select {
 		case <-c.inner.handshake:
 			break
+		case <-c.inner.done:
+			return 0, c.inner.err
 		}
 	} else {
 		select {
 		case <-c.inner.ready:
 			break
+		case <-c.inner.done:
+			return 0, c.inner.err
 		}
 	}
 
@@ -109,11 +113,15 @@ func (c *BidirectionalConn) Write(p []byte) (n int, err error) {
 		select {
 		case <-c.inner.handshake:
 			break
+		case <-c.inner.done:
+			return 0, c.inner.err
 		}
 	} else {
 		select {
 		case <-c.inner.ready:
 			break
+		case <-c.inner.done:
+			return 0, c.inner.err
 		}
 	}
 
