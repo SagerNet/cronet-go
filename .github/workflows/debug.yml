@@ -13,6 +13,14 @@ on:
       - main
 
 jobs:
+  setup:
+    name: Setup
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cancel previous
+        uses: styfle/cancel-workflow-action@0.7.0
+        with:
+          access_token: ${{ github.token }}
   build:
     name: Local build
     runs-on: ubuntu-latest
@@ -25,10 +33,18 @@ jobs:
         uses: actions/setup-go@v2
         with:
           go-version: 1.18.1
+      - name: Install Clang
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 15 clang lld
       - name: Build
+        env:
+          CC: clang-15
+          CGO_LDFLAGS_ALLOW: -fuse-ld=lld
         run: |
           go run -v ./cmd/prebuild
-          go run -v ./cmd/run -v
+          go run -v ./cmd/build-static
   cross:
     name: Cross Build
     runs-on: ubuntu-latest
@@ -37,28 +53,12 @@ jobs:
         include:
           - goos: linux
             goarch: 386
+            cc: clang-15 -target i386-pc-linux-gnu
             pkg: gcc-multilib
-            cc: gcc
           - goos: linux
             goarch: arm64
-            pkg: gcc-aarch64-linux-gnu libc-dev-arm64-cross
-            cc: aarch64-linux-gnu-gcc
-          - goos: linux
-            goarch: arm
-            pkg: gcc-arm-linux-gnueabihf libc-dev-armhf-cross
-            cc: arm-linux-gnueabihf-gcc
-          - goos: linux
-            goarch: mipsle
-            pkg: gcc-mipsel-linux-gnu gcc-multilib-mipsel-linux-gnu
-            cc: mipsel-linux-gnu-gcc
-          - goos: linux
-            goarch: mips64le
-            pkg: gcc-mips64el-linux-gnuabi64 gcc-multilib-mips64el-linux-gnuabi64
-            cc: mips64el-linux-gnuabi64-gcc
-      #          - goos: windows
-      #            goarch: amd64
-      #            pkg: gcc-mingw-w64-x86-64
-      #            cc: x86_64-w64-mingw32-gcc-win32
+            cc: clang-15 -target arm64-pc-linux-gnu --sysroot /usr/aarch64-linux-gnu
+            pkg: libc-dev-arm64-cross
       fail-fast: false
     steps:
       - name: Checkout
@@ -69,35 +69,24 @@ jobs:
         uses: actions/setup-go@v2
         with:
           go-version: 1.18.1
+      - name: Install Clang
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 15 clang lld
       - name: Prebuild
         run: |
           sudo apt-get install -y ${{ matrix.pkg }}
           go build -v -o prebuild ./cmd/prebuild
-          go build -v -o build ./cmd/build
+          go build -v -o build ./cmd/build-static
       - name: Build
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CC: ${{ matrix.cc }}
+          LD: lld-15
+          CGO_LDFLAGS_ALLOW: -fuse-ld=lld
           CGO_ENABLED: 1
         run: |
           ./prebuild
           ./build
-#  mac:
-#    name: MacOS Build
-#    runs-on: macos-latest
-#    steps:
-#      - name: Checkout
-#        uses: actions/checkout@v2
-#        with:
-#          fetch-depth: 0
-#      - name: Install Golang
-#        uses: actions/setup-go@v2
-#        with:
-#          go-version: 1.18.1
-#      - name: Build
-#        env:
-#          CC: gcc-11
-#        run: |
-#          go run -v ./cmd/prebuild
-#          go run -v ./cmd/run -v

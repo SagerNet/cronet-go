@@ -13,12 +13,9 @@ import (
 var logger = log.NewLogger("build")
 
 func main() {
-	os.Setenv("CGO_LDFLAGS_ALLOW", "-fuse-ld=lld")
-	os.Setenv("CC", "clang")
-
 	var args []string
 	args = append(args, "build")
-	args = append(args, "-x")
+	args = append(args, "-v")
 	args = append(args, "-o", "naive-go")
 	args = append(args, "-gcflags", "-c "+strconv.Itoa(runtime.NumCPU()))
 	args = append(args, "-tags", "static")
