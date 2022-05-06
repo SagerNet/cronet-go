@@ -51,6 +51,7 @@ func main() {
 	if packageAsset == nil {
 		logger.Fatal(hostOs, " release not found in ", *packageRelease.AssetsURL)
 	}
+	logger.Info(">> ", *packageAsset.BrowserDownloadURL)
 	response, err := http.Get(*packageAsset.BrowserDownloadURL)
 	if err != nil {
 		logger.Fatal(err)
@@ -77,10 +78,11 @@ func main() {
 			}
 			name := filepath.Base(header.Name)
 			switch filepath.Ext(name) {
-			case ".h", ".so", ".a":
+			case ".h", ".so", ".dylib", ".a":
 			default:
 				continue
 			}
+			logger.Info(">> ", name)
 			file, err := os.Create(name)
 			if err != nil {
 				logger.Fatal(err)
@@ -110,6 +112,7 @@ func main() {
 			default:
 				continue
 			}
+			logger.Info(">> ", name)
 			outFile, err := os.Create(name)
 			if err != nil {
 				logger.Fatal(err)
