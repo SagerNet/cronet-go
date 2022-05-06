@@ -27,7 +27,6 @@ func main() {
 	args = append(args, "run")
 	args = append(args, "-v")
 	args = append(args, "-gcflags", "-c "+strconv.Itoa(runtime.NumCPU()))
-	args = append(args, "./naive")
 	args = append(args, os.Args[1:]...)
 
 	err = execve("go", args...)

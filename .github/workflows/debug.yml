@@ -33,15 +33,7 @@ jobs:
         uses: actions/setup-go@v2
         with:
           go-version: 1.18.1
-      - name: Install Clang
-        run: |
-          wget https://apt.llvm.org/llvm.sh
-          chmod +x llvm.sh
-          sudo ./llvm.sh 15 clang lld
       - name: Build
-        env:
-          CC: clang-15
-          CGO_LDFLAGS_ALLOW: -fuse-ld=lld
         run: |
           go run -v ./cmd/prebuild
-          go run -v ./cmd/build-static
+          go run -v ./cmd/run ./naive -v

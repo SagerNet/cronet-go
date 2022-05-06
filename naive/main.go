@@ -16,8 +16,8 @@ import (
 	"github.com/sagernet/cronet-go"
 	E "github.com/sagernet/sing/common/exceptions"
 	"github.com/sagernet/sing/common/log"
-	"github.com/sagernet/sing/common/metadata"
-	"github.com/sagernet/sing/common/network"
+	M "github.com/sagernet/sing/common/metadata"
+	N "github.com/sagernet/sing/common/network"
 	"github.com/sagernet/sing/common/redir"
 	"github.com/sagernet/sing/common/rw"
 	"github.com/sagernet/sing/transport/mixed"
@@ -209,7 +209,7 @@ type Listener struct {
 	extraHeaders  map[string]string
 }
 
-func (l *Listener) NewConnection(ctx context.Context, conn net.Conn, metadata metadata.Metadata) error {
+func (l *Listener) NewConnection(ctx context.Context, conn net.Conn, metadata M.Metadata) error {
 	logger.Info(metadata.Source, " => ", metadata.Destination)
 	headers := map[string]string{
 		"-connect-authority": metadata.Destination.String(),
@@ -228,7 +228,7 @@ func (l *Listener) NewConnection(ctx context.Context, conn net.Conn, metadata me
 	return rw.CopyConn(ctx, conn, bidiConn)
 }
 
-func (l *Listener) NewPacketConnection(ctx context.Context, conn network.PacketConn, metadata metadata.Metadata) error {
+func (l *Listener) NewPacketConnection(ctx context.Context, conn N.PacketConn, metadata M.Metadata) error {
 	conn.Close()
 	return nil
 }

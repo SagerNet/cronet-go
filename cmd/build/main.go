@@ -16,10 +16,8 @@ func main() {
 	var args []string
 	args = append(args, "build")
 	args = append(args, "-v")
-	args = append(args, "-o", "naive-go")
 	args = append(args, "-gcflags", "-c "+strconv.Itoa(runtime.NumCPU()))
 	args = append(args, os.Args[1:]...)
-	args = append(args, "./naive")
 
 	err := execve("go", args...)
 	if err != nil {

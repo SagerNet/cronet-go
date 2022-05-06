@@ -259,7 +259,7 @@ func (c *bidirectionalHandler) OnWriteCompleted(stream BidirectionalStream) {
 func (c *bidirectionalHandler) OnResponseTrailersReceived(stream BidirectionalStream, trailers map[string]string) {
 }
 
-func (c *bidirectionalHandler) OnSucceed(stream BidirectionalStream) {
+func (c *bidirectionalHandler) OnSucceeded(stream BidirectionalStream) {
 	c.Close(stream, io.EOF)
 }
 
