@@ -14,35 +14,40 @@ import (
 // BidirectionalConn is a wrapper from BidirectionalStream to net.Conn
 type BidirectionalConn struct {
 	stream           BidirectionalStream
-	inner            bidirectionalHandler
 	readWaitHeaders  bool
 	writeWaitHeaders bool
+	access           sync.Mutex
+	close            chan struct{}
+	done             chan struct{}
+	err              error
+	ready            chan struct{}
+	handshake        chan struct{}
+	read             chan int
+	write            chan struct{}
 }
 
 func (e StreamEngine) CreateConn(readWaitHeaders bool, writeWaitHeaders bool) *BidirectionalConn {
 	conn := &BidirectionalConn{
 		readWaitHeaders:  readWaitHeaders,
 		writeWaitHeaders: writeWaitHeaders,
+		close:            make(chan struct{}),
+		done:             make(chan struct{}),
+		ready:            make(chan struct{}),
+		handshake:        make(chan struct{}),
+		read:             make(chan int),
+		write:            make(chan struct{}),
 	}
-	conn.inner = bidirectionalHandler{
-		close:     make(chan struct{}),
-		done:      make(chan struct{}),
-		ready:     make(chan struct{}),
-		handshake: make(chan struct{}),
-		read:      make(chan int),
-		write:     make(chan struct{}),
-	}
-	conn.stream = e.CreateStream(&conn.inner)
+	conn.stream = e.CreateStream(&bidirectionalHandler{conn})
 	return conn
 }
 
 func (c *BidirectionalConn) Start(method string, url string, headers map[string]string, priority int, endOfStream bool) error {
-	c.inner.access.Lock()
-	defer c.inner.access.Unlock()
+	c.access.Lock()
+	defer c.access.Unlock()
 	select {
-	case <-c.inner.close:
+	case <-c.close:
 		return net.ErrClosed
-	case <-c.inner.done:
+	case <-c.done:
 		return net.ErrClosed
 	default:
 	}
@@ -55,121 +60,121 @@ func (c *BidirectionalConn) Start(method string, url string, headers map[string]
 // Read implements io.Reader
 func (c *BidirectionalConn) Read(p []byte) (n int, err error) {
 	select {
-	case <-c.inner.close:
+	case <-c.close:
 		return 0, net.ErrClosed
-	case <-c.inner.done:
+	case <-c.done:
 		return 0, net.ErrClosed
 	default:
 	}
 
 	if c.readWaitHeaders {
 		select {
-		case <-c.inner.handshake:
+		case <-c.handshake:
 			break
-		case <-c.inner.done:
-			return 0, c.inner.err
+		case <-c.done:
+			return 0, c.err
 		}
 	} else {
 		select {
-		case <-c.inner.ready:
+		case <-c.ready:
 			break
-		case <-c.inner.done:
-			return 0, c.inner.err
+		case <-c.done:
+			return 0, c.err
 		}
 	}
 
-	c.inner.access.Lock()
+	c.access.Lock()
 
 	select {
-	case <-c.inner.close:
+	case <-c.close:
 		return 0, net.ErrClosed
-	case <-c.inner.done:
+	case <-c.done:
 		return 0, net.ErrClosed
 	default:
 	}
 
 	c.stream.Read(p)
-	c.inner.access.Unlock()
+	c.access.Unlock()
 
 	select {
-	case bytesRead := <-c.inner.read:
+	case bytesRead := <-c.read:
 		return bytesRead, nil
-	case <-c.inner.done:
-		return 0, c.inner.err
+	case <-c.done:
+		return 0, c.err
 	}
 }
 
 // Write implements io.Writer
 func (c *BidirectionalConn) Write(p []byte) (n int, err error) {
 	select {
-	case <-c.inner.close:
+	case <-c.close:
 		return 0, net.ErrClosed
-	case <-c.inner.done:
+	case <-c.done:
 		return 0, net.ErrClosed
 	default:
 	}
 
 	if c.writeWaitHeaders {
 		select {
-		case <-c.inner.handshake:
+		case <-c.handshake:
 			break
-		case <-c.inner.done:
-			return 0, c.inner.err
+		case <-c.done:
+			return 0, c.err
 		}
 	} else {
 		select {
-		case <-c.inner.ready:
+		case <-c.ready:
 			break
-		case <-c.inner.done:
-			return 0, c.inner.err
+		case <-c.done:
+			return 0, c.err
 		}
 	}
 
-	c.inner.access.Lock()
+	c.access.Lock()
 
 	select {
-	case <-c.inner.close:
+	case <-c.close:
 		return 0, net.ErrClosed
-	case <-c.inner.done:
+	case <-c.done:
 		return 0, net.ErrClosed
 	default:
 	}
 
 	c.stream.Write(p, false)
-	c.inner.access.Unlock()
+	c.access.Unlock()
 
 	select {
-	case <-c.inner.write:
+	case <-c.write:
 		return len(p), nil
-	case <-c.inner.done:
-		return 0, c.inner.err
+	case <-c.done:
+		return 0, c.err
 	}
 }
 
 // Done implements context.Context
 func (c *BidirectionalConn) Done() <-chan struct{} {
-	return c.inner.done
+	return c.done
 }
 
 // Err implements context.Context
 func (c *BidirectionalConn) Err() error {
-	return c.inner.err
+	return c.err
 }
 
 // Close implements io.Closer
 func (c *BidirectionalConn) Close() error {
-	c.inner.access.Lock()
-	defer c.inner.access.Unlock()
+	c.access.Lock()
+	defer c.access.Unlock()
 
 	select {
-	case <-c.inner.close:
+	case <-c.close:
 		return net.ErrClosed
-	case <-c.inner.done:
+	case <-c.done:
 		return net.ErrClosed
 	default:
 	}
 
-	close(c.inner.close)
+	close(c.close)
 	c.stream.Cancel()
 	return nil
 }
@@ -200,14 +205,7 @@ func (c *BidirectionalConn) SetWriteDeadline(t time.Time) error {
 }
 
 type bidirectionalHandler struct {
-	access    sync.Mutex
-	close     chan struct{}
-	done      chan struct{}
-	err       error
-	ready     chan struct{}
-	handshake chan struct{}
-	read      chan int
-	write     chan struct{}
+	*BidirectionalConn
 }
 
 func (c *bidirectionalHandler) OnStreamReady(stream BidirectionalStream) {
