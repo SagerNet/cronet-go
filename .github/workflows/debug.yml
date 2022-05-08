@@ -22,7 +22,7 @@ jobs:
         with:
           access_token: ${{ github.token }}
   build:
-    name: Local build
+    name: Test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -36,4 +36,4 @@ jobs:
       - name: Build
         run: |
           go run -v ./cmd/prebuild
-          go run -v ./cmd/run ./naive -v
+          go run -v ./cmd/test .

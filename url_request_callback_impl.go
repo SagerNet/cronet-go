@@ -27,7 +27,7 @@ func NewURLRequestCallback(handler URLRequestCallbackHandler) URLRequestCallback
 	)
 	urlRequestCallbackAccess.Lock()
 	urlRequestCallbackMap[uintptr(unsafe.Pointer(ptr))] = handler
-	urlRequestCallbackAccess.RUnlock()
+	urlRequestCallbackAccess.Unlock()
 	return URLRequestCallback{ptr}
 }
 

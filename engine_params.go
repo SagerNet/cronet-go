@@ -16,7 +16,7 @@ type EngineParams struct {
 	ptr C.Cronet_EngineParamsPtr
 }
 
-func NewEngineParameters() EngineParams {
+func NewEngineParams() EngineParams {
 	return EngineParams{C.Cronet_EngineParams_Create()}
 }
 

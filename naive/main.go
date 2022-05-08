@@ -119,7 +119,7 @@ func run(cmd *cobra.Command, args []string) {
 	}*/
 
 	engine := cronet.NewEngine()
-	params := cronet.NewEngineParameters()
+	params := cronet.NewEngineParams()
 
 	if config.HostResolverRules != "" || config.SSLKeyLogFile != "" {
 		var experimentalOptions ExperimentalOptions
