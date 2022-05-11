@@ -5,7 +5,7 @@ go 1.18
 require (
 	github.com/google/go-github/v44 v44.0.0
 	github.com/klauspost/compress v1.15.3
-	github.com/sagernet/sing v0.0.0-20220510150654-19bf00e4c453
+	github.com/sagernet/sing v0.0.0-20220510154312-efde335c7f2f
 	github.com/sirupsen/logrus v1.8.1
 	github.com/spf13/cobra v1.4.0
 	github.com/ulikunitz/xz v0.5.10
