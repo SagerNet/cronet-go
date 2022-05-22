@@ -64,6 +64,15 @@ func main() {
 			case "x86_64":
 				appendEnv("CGO_CFLAGS", "--target=x86_64-openwrt-linux-musl -m64 -march=x86-64 -msse3")
 				appendEnv("CGO_LDFLAGS", "--target=x86_64-openwrt-linux-musl -m64")
+			case "aarch64_generic":
+				appendEnv("CGO_CFLAGS", "--target=aarch64-openwrt-linux-musl -mbranch-protection=pac-ret")
+				appendEnv("CGO_LDFLAGS", "--target=aarch64-openwrt-linux-musl")
+			case "aarch64_cortex-a53":
+				appendEnv("CGO_CFLAGS", "--target=aarch64-openwrt-linux-musl -mcpu=cortex-a53 -mbranch-protection=pac-ret")
+				appendEnv("CGO_LDFLAGS", "--target=aarch64-openwrt-linux-musl")
+			case "aarch64_cortex-a72":
+				appendEnv("CGO_CFLAGS", "--target=aarch64-openwrt-linux-musl -mcpu=cortex-a72 -mbranch-protection=pac-ret")
+				appendEnv("CGO_LDFLAGS", "--target=aarch64-openwrt-linux-musl")
 			}
 		} else {
 			switch goarch {

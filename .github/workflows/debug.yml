@@ -48,7 +48,7 @@ jobs:
             goos: linux
             goarch: mips64le
           # openwrt
-          - name: openwrt-x64
+          - name: openwrt-x86_64
             goos: linux
             goarch: amd64
             openwrt: x86_64
@@ -56,6 +56,18 @@ jobs:
             goos: linux
             goarch: 386
             openwrt: x86
+          - name: openwrt-aarch64_generic
+            goos: linux
+            goarch: arm64
+            openwrt: aarch64_generic
+          - name: openwrt-aarch64_cortex-a53
+            goos: linux
+            goarch: arm64
+            openwrt: aarch64_cortex-a53
+          - name: openwrt-aarch64_cortex-a72
+            goos: linux
+            goarch: arm64
+            openwrt: aarch64_cortex-a72
     steps:
       - name: Checkout
         uses: actions/checkout@v2
