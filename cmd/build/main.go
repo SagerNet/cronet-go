@@ -69,8 +69,13 @@ func main() {
 			appendEnv("CGO_CFLAGS", "--target=arm-linux-gnueabihf -march=armv7-a -mfloat-abi=hard -mtune=generic-armv7-a -mfpu=neon")
 			appendEnv("CGO_LDFLAGS", "--target=arm-linux-gnueabihf -march=armv7-a -mfloat-abi=hard")
 			os.Setenv("GOARM", "7")
+		case "mipsle":
+			appendEnv("CGO_CFLAGS", "--target=mipsel-linux-gnu -march=mipsel -mcpu=mips32 -mhard-float")
+			appendEnv("CGO_LDFLAGS", "--target=mipsel-linux-gnu -mips32")
+		case "mips64le":
+			appendEnv("CGO_CFLAGS", "--target=mips64el-linux-gnuabi64 -march=mips64el -mcpu=mips64r2")
+			appendEnv("CGO_LDFLAGS", "--target=mips64el-linux-gnuabi64 -mips64r2")
 		}
-
 	}
 
 	os.Setenv("PATH", os.ExpandEnv("$PWD/llvm/bin:$PATH"))
