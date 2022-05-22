@@ -86,7 +86,7 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: |
-          ./build -v -o naive-go -tags static ./naive
+          ./build -v -o naive-go -tags static -trimpath -ldflags "-s -w -buildid=" ./naive
           ./llvm/bin/llvm-strip ./naive-go
       - name: Upload artifact
         uses: actions/upload-artifact@v3
