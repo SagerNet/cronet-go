@@ -147,10 +147,9 @@ func main() {
 					continue
 				}
 				switch _, fileName := filepath.Split(header.Name); fileName {
-				// case "go_env.sh":
 				default:
 					switch filepath.Ext(header.Name) {
-					case ".go", ".c":
+					case ".go", ".c", ".sh":
 						continue
 					}
 				}

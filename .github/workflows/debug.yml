@@ -28,17 +28,23 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - goos: linux
+          - name: linux-x64
+            goos: linux
             goarch: amd64
-          - goos: linux
+          - name: linux-x86
+            goos: linux
             goarch: 386
-          - goos: linux
+          - name: linux-arm64
+            goos: linux
             goarch: arm64
-          - goos: linux
+          - name: linux-arm
+            goos: linux
             goarch: arm
-          - goos: linux
+          - name: linux-mipsel
+            goos: linux
             goarch: mipsle
-          - goos: linux
+          - name: linux-mips64el
+            goos: linux
             goarch: mips64le
     steps:
       - name: Checkout
@@ -66,3 +72,9 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
         run: |
           ./build -v -o naive-go -tags static ./naive
+          ./llvm/bin/llvm-strip ./naive-go
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: naive-go-${{ matrix.name }}
+          path: naive-go
