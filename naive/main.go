@@ -3,13 +3,20 @@ package main
 import (
 	"context"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
+	"github.com/sagernet/sing/common"
+	"github.com/sagernet/sing/common/buf"
+	"github.com/sagernet/sing/common/bufio"
+	"io"
 	"io/ioutil"
+	"math/rand"
 	"net"
 	"net/netip"
 	"net/url"
 	"os"
 	"os/signal"
+	"runtime"
 	"strings"
 	"syscall"
 
@@ -28,21 +35,21 @@ import (
 var logger = log.NewLogger("naive")
 
 type Config struct {
-	Listen string `json:"listen"`
-	Proxy  string `json:"proxy"`
-	// EnableRedir         bool   `json:"enable-redir"`
-	// InsecureConcurrency int    `json:"insecure-concurrency"`
-	ExtraHeaders      string `json:"extra-headers"`
-	HostResolverRules string `json:"host-resolver-rules"`
-	// ResolverRange       string `json:"resolver-range"`
-	Log           string `json:"log"`
-	NetLog        string `json:"log-net-log"`
-	SSLKeyLogFile string `json:"ssl-key-log-file"`
+	Listen              string `json:"listen"`
+	Proxy               string `json:"proxy"`
+	EnableRedir         bool   `json:"enable-redir"`
+	InsecureConcurrency int    `json:"insecure-concurrency"`
+	ExtraHeaders        string `json:"extra-headers"`
+	HostResolverRules   string `json:"host-resolver-rules"`
+	Log                 string `json:"log"`
+	NetLog              string `json:"log-net-log"`
+	SSLKeyLogFile       string `json:"ssl-key-log-file"`
 }
 
 type ExperimentalOptions struct {
 	HostResolverRules *HostResolverRules `json:"HostResolverRules,omitempty"`
 	SSLKeyLogFile     string             `json:"ssl_key_log_file,omitempty"`
+	FeatureList       string             `json:"feature_list,omitempty"`
 }
 
 type HostResolverRules struct {
@@ -66,11 +73,10 @@ func main() {
 	}
 	command.Flags().StringVar(&config.Listen, "listen", "", "<addr:port> set listen address")
 	command.Flags().StringVar(&config.Proxy, "proxy", "", "<proto>://[<user>:<pass>@]<hostname>[:<port>] proto: https, quic")
-	// command.Flags().BoolVar(&config.EnableRedir, "enable-redir", false, "enable redir support (linux only)")
-	// command.Flags().IntVar(&config.InsecureConcurrency, "insecure-concurrency=", 1, "use N connections, insecure")
+	command.Flags().BoolVar(&config.EnableRedir, "enable-redir", false, "enable redir support (linux only)")
+	command.Flags().IntVar(&config.InsecureConcurrency, "insecure-concurrency=", 1, "use N connections, insecure")
 	command.Flags().StringVar(&config.ExtraHeaders, "extra-headers", "", "extra headers split by CRLF")
 	command.Flags().StringVar(&config.HostResolverRules, "host-resolver-rules", "", "resolver rules")
-	// command.Flags().StringVar(&config.ResolverRange, "resolver-range", "", "resolver-range")
 	command.Flags().StringVar(&config.Log, "log", "disabled", "log to stderr, or file (default disabled)")
 	if err := command.Execute(); err != nil {
 		logger.Fatalln(err)
@@ -114,9 +120,9 @@ func run(cmd *cobra.Command, args []string) {
 	}
 
 	var transMode redir.TransproxyMode
-	/*if config.EnableRedir {
+	if config.EnableRedir {
 		transMode = redir.ModeRedirect
-	}*/
+	}
 
 	engine := cronet.NewEngine()
 	params := cronet.NewEngineParams()
@@ -213,6 +219,7 @@ func (l *Listener) NewConnection(ctx context.Context, conn net.Conn, metadata M.
 	logger.Info(metadata.Source, " => ", metadata.Destination)
 	headers := map[string]string{
 		"-connect-authority": metadata.Destination.String(),
+		"Padding":            generatePaddingHeader(),
 	}
 	if l.authorization != "" {
 		headers["proxy-authorization"] = l.authorization
@@ -225,7 +232,7 @@ func (l *Listener) NewConnection(ctx context.Context, conn net.Conn, metadata M.
 	if err != nil {
 		return E.Cause(err, "start bidi conn")
 	}
-	return rw.CopyConn(ctx, conn, bidiConn)
+	return bufio.CopyConn(ctx, conn, &PaddingConn{Conn: bidiConn})
 }
 
 func (l *Listener) NewPacketConnection(ctx context.Context, conn N.PacketConn, metadata M.Metadata) error {
@@ -238,4 +245,103 @@ func (l *Listener) HandleError(err error) {
 		return
 	}
 	logger.Warn(err)
+}
+
+func generatePaddingHeader() string {
+	paddingLen := rand.Intn(32) + 30
+	padding := make([]byte, paddingLen)
+	bits := rand.Uint64()
+	for i := 0; i < 16; i++ {
+		// Codes that won't be Huffman coded.
+		padding[i] = "!#$()+<>?@[]^`{}"[bits&15]
+		bits >>= 4
+	}
+	for i := 16; i < paddingLen; i++ {
+		padding[i] = '~'
+	}
+	return string(padding)
+}
+
+const kFirstPaddings = 8
+
+type PaddingConn struct {
+	net.Conn
+
+	readPadding      int
+	writePadding     int
+	readRemaining    int
+	paddingRemaining int
+}
+
+func (c *PaddingConn) Read(p []byte) (n int, err error) {
+	if c.readRemaining > 0 {
+		if len(p) > c.readRemaining {
+			p = p[:c.readRemaining]
+		}
+		n, err = c.Read(p)
+		if err != nil {
+			return
+		}
+		c.readRemaining -= n
+		return
+	}
+	if c.paddingRemaining > 0 {
+		err = rw.SkipN(c.Conn, c.paddingRemaining)
+		if err != nil {
+			return
+		}
+		c.readRemaining = 0
+	}
+	if c.readPadding < kFirstPaddings {
+		paddingHdr := p[:3]
+		_, err = io.ReadFull(c.Conn, paddingHdr)
+		if err != nil {
+			return
+		}
+		originalDataSize := int(binary.BigEndian.Uint16(paddingHdr[:2]))
+		paddingSize := int(paddingHdr[3])
+		if len(p) > originalDataSize {
+			p = p[:originalDataSize]
+		}
+		n, err = c.Conn.Read(p)
+		if err != nil {
+			return
+		}
+		c.readPadding++
+		c.readRemaining = originalDataSize - n
+		c.paddingRemaining = paddingSize
+		return
+	}
+	return c.Conn.Read(p)
+}
+
+func (c *PaddingConn) Write(p []byte) (n int, err error) {
+	if c.writePadding < kFirstPaddings {
+		paddingSize := rand.Intn(256)
+		_buffer := buf.Make(3 + len(p) + paddingSize)
+		defer runtime.KeepAlive(_buffer)
+		buffer := common.Dup(_buffer)
+		binary.BigEndian.PutUint16(buffer, uint16(len(p)))
+		buffer[3] = byte(paddingSize)
+		copy(buffer[3:], p)
+		_, err = c.Conn.Write(buffer)
+		if err != nil {
+			return
+		}
+		c.writePadding++
+	}
+	return c.Conn.Write(p)
+}
+
+func (c *PaddingConn) WriteBuffer(buffer *buf.Buffer) error {
+	if c.writePadding < kFirstPaddings {
+		bufferLen := buffer.Len()
+		paddingSize := rand.Intn(256)
+		header := buffer.Extend(3)
+		binary.BigEndian.PutUint16(header, uint16(bufferLen))
+		header[3] = byte(paddingSize)
+		buffer.Extend(paddingSize)
+		c.writePadding++
+	}
+	return common.Error(c.Conn.Write(buffer.Bytes()))
 }

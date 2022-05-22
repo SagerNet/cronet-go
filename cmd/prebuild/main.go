@@ -76,11 +76,10 @@ func main() {
 			if header.FileInfo().IsDir() {
 				continue
 			}
-			name := filepath.Base(header.Name)
-			switch filepath.Ext(name) {
-			case ".h", ".so", ".dylib", ".a":
-			default:
-				continue
+			name := header.Name[strings.Index(header.Name, "/")+1:]
+			err = os.MkdirAll(filepath.Dir(name), 0755)
+			if err != nil {
+				return
 			}
 			logger.Info(">> ", name)
 			file, err := os.Create(name)

@@ -24,6 +24,7 @@ type BidirectionalConn struct {
 	handshake        chan struct{}
 	read             chan int
 	write            chan struct{}
+	headers          map[string]string
 }
 
 func (e StreamEngine) CreateConn(readWaitHeaders bool, writeWaitHeaders bool) *BidirectionalConn {
@@ -204,6 +205,23 @@ func (c *BidirectionalConn) SetWriteDeadline(t time.Time) error {
 	return os.ErrInvalid
 }
 
+func (c *BidirectionalConn) WaitForHeaders() (map[string]string, error) {
+	select {
+	case <-c.close:
+		return nil, net.ErrClosed
+	case <-c.done:
+		return nil, net.ErrClosed
+	default:
+	}
+
+	select {
+	case <-c.handshake:
+		return c.headers, nil
+	case <-c.done:
+		return nil, c.err
+	}
+}
+
 type bidirectionalHandler struct {
 	*BidirectionalConn
 }
@@ -213,6 +231,7 @@ func (c *bidirectionalHandler) OnStreamReady(stream BidirectionalStream) {
 }
 
 func (c *bidirectionalHandler) OnResponseHeadersReceived(stream BidirectionalStream, headers map[string]string, negotiatedProtocol string) {
+	c.headers = headers
 	close(c.handshake)
 }
 
