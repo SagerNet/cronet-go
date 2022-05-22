@@ -21,59 +21,20 @@ jobs:
         uses: styfle/cancel-workflow-action@0.7.0
         with:
           access_token: ${{ github.token }}
-  build_linux_amd64:
-    name: Build (linux-amd64)
+  build:
+    name: Build
     runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v2
-        with:
-          fetch-depth: 0
-      - name: Install Golang
-        uses: actions/setup-go@v2
-        with:
-          go-version: 1.18.1
-      - name: Pre Build
-        run: |
-          go run -v ./cmd/prebuild
-      - name: Shared Build
-        run: |
-          go run -v ./cmd/build -o naive-go ./naive
-      - name: Static Build
-        run: |
-          go run -v ./cmd/build -o naive-go -tags static ./naive
-  build_linux_386:
-    name: Cross Build (linux-386)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v2
-        with:
-          fetch-depth: 0
-      - name: Install Golang
-        uses: actions/setup-go@v2
-        with:
-          go-version: 1.18.1
-      - name: Pre Build
-        run: |
-          go build -v -o prebuild ./cmd/prebuild
-          go build -v -o build ./cmd/build
-          GOOS=linux GOARCH=386 ./prebuild
-      - name: Shared Build
-        env:
-          GOOS: linux
-          GOARCH: 386
-        run: |
-          ./build -v -o naive-go ./naive
-      - name: Static Build
-        env:
-          GOOS: linux
-          GOARCH: 386
-        run: |
-          ./build -v -o naive-go -tags static ./naive
-  build_linux_arm64:
-    name: Cross Build (linux-arm64)
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: 386
+          - goos: linux
+            goarch: arm64
+          - goos: linux
+            goarch: arm
     steps:
       - name: Checkout
         uses: actions/checkout@v2
@@ -87,45 +48,16 @@ jobs:
         run: |
           go build -v -o prebuild ./cmd/prebuild
           go build -v -o build ./cmd/build
-          GOOS=linux GOARCH=arm64 ./prebuild
+          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} ./prebuild
       - name: Shared Build
         env:
-          GOOS: linux
-          GOARCH: arm64
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
         run: |
           ./build -v -o naive-go ./naive
       - name: Static Build
         env:
-          GOOS: linux
-          GOARCH: arm64
-        run: |
-          ./build -v -o naive-go -tags static ./naive
-  build_linux_arm:
-    name: Cross Build (linux-arm)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v2
-        with:
-          fetch-depth: 0
-      - name: Install Golang
-        uses: actions/setup-go@v2
-        with:
-          go-version: 1.18.1
-      - name: Pre Build
-        run: |
-          go build -v -o prebuild ./cmd/prebuild
-          go build -v -o build ./cmd/build
-          GOOS=linux GOARCH=arm ./prebuild
-      - name: Shared Build
-        env:
-          GOOS: linux
-          GOARCH: arm
-        run: |
-          ./build -v -o naive-go ./naive
-      - name: Static Build
-        env:
-          GOOS: linux
-          GOARCH: arm
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
         run: |
           ./build -v -o naive-go -tags static ./naive
