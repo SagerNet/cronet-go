@@ -2,5 +2,5 @@
 
 package cronet
 
-// #cgo LDFLAGS: -ldl -lm
+// #cgo LDFLAGS: -ldl -lpthread -lrt
 import "C"

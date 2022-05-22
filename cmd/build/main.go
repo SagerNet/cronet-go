@@ -32,6 +32,22 @@ func main() {
 		goarch = runtime.GOARCH
 	}
 
+	var disablePie bool
+	if goarch == "mipsle" || goarch == "mips64le" {
+		disablePie = true
+	} else if goos == "windows" && goarch == "arm64" {
+		disablePie = true
+	} else if goarch == "186" && goos != "android" {
+		disablePie = true
+	}
+
+	if !disablePie {
+		args = append(args, "-buildmode", "pie")
+		appendEnv("CGO_LDFLAGS", "-pie")
+	} else {
+		appendEnv("CGO_LDFLAGS", "-nopie")
+	}
+
 	switch goos {
 	case "windows":
 		appendEnv("MSYS", "winsymlinks:nativestrict")
@@ -39,14 +55,16 @@ func main() {
 		appendEnv("CGO_CFLAGS", "-I $PWD --sysroot=$PWD/sysroot")
 		appendEnv("CGO_LDFLAGS", "-I $PWD --sysroot=$PWD/sysroot")
 		appendEnv("CGO_LDFLAGS", "-fuse-ld=lld")
-
 		switch goarch {
 		case "amd64":
-			args = append(args, "-buildmode", "pie")
+			appendEnv("CGO_CFLAGS", "-m64 -march=x86-64 -msse3")
+			appendEnv("CGO_LDFLAGS", "-m64")
+		case "386":
+			appendEnv("CGO_CFLAGS", "-m32 -mfpmath=sse -msse3")
+			appendEnv("CGO_LDFLAGS", "-m32")
 		case "arm64":
 			appendEnv("CGO_CFLAGS", "--target=aarch64-linux-gnu -mbranch-protection=pac-ret")
 			appendEnv("CGO_LDFLAGS", "--target=aarch64-linux-gnu")
-			args = append(args, "-buildmode", "pie")
 		}
 
 	}

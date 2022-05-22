@@ -2,5 +2,5 @@
 
 package cronet
 
-// #cgo LDFLAGS: ./libcronet.so  -ldl -lpthread -lrt -Wl,-rpath,$ORIGIN
+// #cgo LDFLAGS: -ldl -lpthread
 import "C"

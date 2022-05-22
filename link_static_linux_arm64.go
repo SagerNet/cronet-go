@@ -2,5 +2,5 @@
 
 package cronet
 
-// #cgo LDFLAGS: ./libcronet_static.a  -ldl -lpthread -lrt -latomic -lresolv -lm
+// #cgo LDFLAGS: -ldl -lpthread -lrt -latomic -lresolv -lm
 import "C"
