@@ -51,7 +51,7 @@ func main() {
 
 	switch goos {
 	case "windows":
-		appendEnv("MSYS", "winsymlinks:nativestrict")
+		os.Setenv("MSYS", "winsymlinks:nativestrict")
 	case "linux":
 		appendEnv("CGO_CFLAGS", "-I $PWD --sysroot=$PWD/sysroot")
 		appendEnv("CGO_LDFLAGS", "-I $PWD --sysroot=$PWD/sysroot")
@@ -72,15 +72,10 @@ func main() {
 			} else if strings.HasPrefix(openwrt, "arm") {
 				appendEnv("CGO_CFLAGS", "--target=arm-openwrt-linux-muslgnueabi")
 				appendEnv("CGO_LDFLAGS", "--target=arm-openwrt-linux-muslgnueabi")
-				var armIsSoft bool
-				switch openwrt {
-				case "aarch64_cortex-a53":
-					appendEnv("CGO_CFLAGS", "-mcpu=cortex-a53")
-				case "aarch64_cortex-a72":
-					appendEnv("CGO_CFLAGS", "-mcpu=cortex-a72")
-				case "aarch64_generic":
-					break
 
+				var armIsSoft bool
+
+				switch openwrt {
 				case "arm_cortex-a5_vfpv4":
 					appendEnv("CGO_CFLAGS", "-mcpu=cortex-a5 -mfpu=vfpv4")
 				case "arm_cortex-a7":
@@ -106,14 +101,12 @@ func main() {
 					armIsSoft = true
 				}
 
-				if strings.HasPrefix(openwrt, "arm") {
-					if armIsSoft {
-						appendEnv("CGO_CFLAGS", "-mfloat-abi=soft")
-						appendEnv("CGO_LDFLAGS", "-mfloat-abi=soft")
-					} else {
-						appendEnv("CGO_CFLAGS", "-mfloat-abi=hard")
-						appendEnv("CGO_LDFLAGS", "-mfloat-abi=hard")
-					}
+				if armIsSoft {
+					appendEnv("CGO_CFLAGS", "-mfloat-abi=soft")
+					appendEnv("CGO_LDFLAGS", "-mfloat-abi=soft")
+				} else {
+					appendEnv("CGO_CFLAGS", "-mfloat-abi=hard")
+					appendEnv("CGO_LDFLAGS", "-mfloat-abi=hard")
 				}
 			} else {
 				switch openwrt {

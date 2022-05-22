@@ -337,7 +337,7 @@ func (c *PaddingConn) WriteBuffer(buffer *buf.Buffer) error {
 	if c.writePadding < kFirstPaddings {
 		bufferLen := buffer.Len()
 		paddingSize := rand.Intn(256)
-		header := buffer.Extend(3)
+		header := buffer.ExtendHeader(3)
 		binary.BigEndian.PutUint16(header, uint16(bufferLen))
 		header[3] = byte(paddingSize)
 		buffer.Extend(paddingSize)
