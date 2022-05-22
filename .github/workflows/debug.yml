@@ -100,3 +100,32 @@ jobs:
           GOARCH: arm64
         run: |
           ./build -v -o naive-go -tags static ./naive
+  build_linux_arm:
+    name: Cross Build (linux-arm)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+      - name: Install Golang
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.18.1
+      - name: Pre Build
+        run: |
+          go build -v -o prebuild ./cmd/prebuild
+          go build -v -o build ./cmd/build
+          GOOS=linux GOARCH=arm ./prebuild
+      - name: Shared Build
+        env:
+          GOOS: linux
+          GOARCH: arm
+        run: |
+          ./build -v -o naive-go ./naive
+      - name: Static Build
+        env:
+          GOOS: linux
+          GOARCH: arm
+        run: |
+          ./build -v -o naive-go -tags static ./naive

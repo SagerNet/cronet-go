@@ -65,6 +65,10 @@ func main() {
 		case "arm64":
 			appendEnv("CGO_CFLAGS", "--target=aarch64-linux-gnu -mbranch-protection=pac-ret")
 			appendEnv("CGO_LDFLAGS", "--target=aarch64-linux-gnu")
+		case "arm":
+			appendEnv("CGO_CFLAGS", "--target=arm-linux-gnueabihf -march=armv7-a -mfloat-abi=hard -mtune=generic-armv7-a -mfpu=neon")
+			appendEnv("CGO_LDFLAGS", "--target=arm-linux-gnueabihf -march=armv7-a -mfloat-abi=hard")
+			os.Setenv("GOARM", "7")
 		}
 
 	}
