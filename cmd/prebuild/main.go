@@ -257,6 +257,11 @@ func clangOsString() string {
 }
 
 func naiveOsString() string {
+	openwrt := os.Getenv("OPENWRT")
+	if openwrt != "" {
+		return "openwrt-" + openwrt
+	}
+
 	goos := os.Getenv("GOOS")
 	if goos == "" {
 		goos = runtime.GOOS

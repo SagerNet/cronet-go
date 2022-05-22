@@ -28,6 +28,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # linux
           - name: linux-x64
             goos: linux
             goarch: amd64
@@ -46,6 +47,15 @@ jobs:
           - name: linux-mips64el
             goos: linux
             goarch: mips64le
+          # openwrt
+          - name: openwrt-x64
+            goos: linux
+            goarch: amd64
+            openwrt: x86_64
+          - name: openwrt-x86
+            goos: linux
+            goarch: 386
+            openwrt: x86
     steps:
       - name: Checkout
         uses: actions/checkout@v2
@@ -74,17 +84,25 @@ jobs:
         run: |
           go build -v -o prebuild ./cmd/prebuild
           go build -v -o build ./cmd/build
-          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} ./prebuild
+      - name: Prepare toolchains
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          OPENWRT: ${{ matrix.openwrt }}
+        run: |
+          ./prebuild
       - name: Shared Build
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
+          OPENWRT: ${{ matrix.openwrt }}
         run: |
           ./build -v -o naive-go ./naive
       - name: Static Build
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
+          OPENWRT: ${{ matrix.openwrt }}
         run: |
           ./build -v -o naive-go -tags static -trimpath -ldflags "-s -w -buildid=" ./naive
           ./llvm/bin/llvm-strip ./naive-go
