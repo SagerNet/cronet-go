@@ -62,60 +62,79 @@ func main() {
 			if strings.HasPrefix(openwrt, "aarch64") {
 				appendEnv("CGO_CFLAGS", "--target=aarch64-openwrt-linux-musl -mbranch-protection=pac-ret")
 				appendEnv("CGO_LDFLAGS", "--target=aarch64-openwrt-linux-musl")
+				switch openwrt {
+				case "aarch64_cortex-a53":
+					appendEnv("CGO_CFLAGS", "-mcpu=cortex-a53")
+				case "aarch64_cortex-a72":
+					appendEnv("CGO_CFLAGS", "-mcpu=cortex-a72")
+					//case "aarch64_generic":
+				}
 			} else if strings.HasPrefix(openwrt, "arm") {
 				appendEnv("CGO_CFLAGS", "--target=arm-openwrt-linux-muslgnueabi")
 				appendEnv("CGO_LDFLAGS", "--target=arm-openwrt-linux-muslgnueabi")
-			}
+				var armIsSoft bool
+				switch openwrt {
+				case "aarch64_cortex-a53":
+					appendEnv("CGO_CFLAGS", "-mcpu=cortex-a53")
+				case "aarch64_cortex-a72":
+					appendEnv("CGO_CFLAGS", "-mcpu=cortex-a72")
+				case "aarch64_generic":
+					break
 
-			var armIsSoft bool
+				case "arm_cortex-a5_vfpv4":
+					appendEnv("CGO_CFLAGS", "-mcpu=cortex-a5 -mfpu=vfpv4")
+				case "arm_cortex-a7":
+					appendEnv("CGO_CFLAGS", "-mcpu=cortex-a7")
+					armIsSoft = true
+				case "arm_cortex-a7_neon-vfpv4":
+					appendEnv("CGO_CFLAGS", "-mcpu=cortex-a7 -mfpu=neon-vfpv4")
+				case "arm_cortex-a8_vfpv3":
+					appendEnv("CGO_CFLAGS", "-mcpu=cortex-a8 -mfpu=neon-vfpv3")
+				case "arm_cortex-a9":
+					appendEnv("CGO_CFLAGS", "-mcpu=cortex-a9")
+					armIsSoft = true
+				case "arm_cortex-a9_neon":
+					appendEnv("CGO_CFLAGS", "-mcpu=cortex-a9 -mfpu=neon")
+				case "arm_cortex-a9_vfpv3-d16":
+					appendEnv("CGO_CFLAGS", "-mcpu=cortex-a9 -mfpu=vfpv3-d16")
+				case "arm_cortex-a15_neon-vfpv4":
+					appendEnv("CGO_CFLAGS", "-mcpu=cortex-a15 -mfpu=neon-vfpv4")
+				case "arm_arm1176jzf-s_vfp":
+					appendEnv("CGO_CFLAGS", "-mcpu=arm1176jzf-s -mfpu=vfp")
+				case "arm_arm926ej-s":
+					appendEnv("CGO_CFLAGS", "-mcpu=arm926ej-s -marm")
+					armIsSoft = true
+				}
 
-			switch openwrt {
-			case "x86_64":
-				appendEnv("CGO_CFLAGS", "--target=x86_64-openwrt-linux-musl -m64 -march=x86-64 -msse3")
-				appendEnv("CGO_LDFLAGS", "--target=x86_64-openwrt-linux-musl -m64")
-			case "x86":
-				appendEnv("CGO_CFLAGS", "--target=i486-openwrt-linux-musl -m32 -mfpmath=sse -msse3")
-				appendEnv("CGO_LDFLAGS", "-Wl,--dynamic-linker=/lib/ld-musl-i386.so.1 --target=i486-openwrt-linux-musl -m32")
-
-			case "aarch64_cortex-a53":
-				appendEnv("CGO_CFLAGS", "-mcpu=cortex-a53")
-			case "aarch64_cortex-a72":
-				appendEnv("CGO_CFLAGS", "-mcpu=cortex-a72")
-			case "aarch64_generic":
-				break
-
-			case "arm_cortex-a5_vfpv4":
-				appendEnv("CGO_CFLAGS", "-mcpu=cortex-a5 -mfpu=vfpv4")
-			case "arm_cortex-a7":
-				appendEnv("CGO_CFLAGS", "-mcpu=cortex-a7")
-				armIsSoft = true
-			case "arm_cortex-a7_neon-vfpv4":
-				appendEnv("CGO_CFLAGS", "-mcpu=cortex-a7 -mfpu=neon-vfpv4")
-			case "arm_cortex-a8_vfpv3":
-				appendEnv("CGO_CFLAGS", "-mcpu=cortex-a8 -mfpu=neon-vfpv3")
-			case "arm_cortex-a9":
-				appendEnv("CGO_CFLAGS", "-mcpu=cortex-a9")
-				armIsSoft = true
-			case "arm_cortex-a9_neon":
-				appendEnv("CGO_CFLAGS", "-mcpu=cortex-a9 -mfpu=neon")
-			case "arm_cortex-a9_vfpv3-d16":
-				appendEnv("CGO_CFLAGS", "-mcpu=cortex-a9 -mfpu=vfpv3-d16")
-			case "arm_cortex-a15_neon-vfpv4":
-				appendEnv("CGO_CFLAGS", "-mcpu=cortex-a15 -mfpu=neon-vfpv4")
-			case "arm_arm1176jzf-s_vfp":
-				appendEnv("CGO_CFLAGS", "-mcpu=arm1176jzf-s -mfpu=vfp")
-			case "arm_arm926ej-s":
-				appendEnv("CGO_CFLAGS", "-mcpu=arm926ej-s -marm")
-				armIsSoft = true
-			}
-
-			if strings.HasPrefix(openwrt, "arm") {
-				if armIsSoft {
-					appendEnv("CGO_CFLAGS", "-mfloat-abi=soft")
-					appendEnv("CGO_LDFLAGS", "-mfloat-abi=soft")
-				} else {
-					appendEnv("CGO_CFLAGS", "-mfloat-abi=hard")
-					appendEnv("CGO_LDFLAGS", "-mfloat-abi=hard")
+				if strings.HasPrefix(openwrt, "arm") {
+					if armIsSoft {
+						appendEnv("CGO_CFLAGS", "-mfloat-abi=soft")
+						appendEnv("CGO_LDFLAGS", "-mfloat-abi=soft")
+					} else {
+						appendEnv("CGO_CFLAGS", "-mfloat-abi=hard")
+						appendEnv("CGO_LDFLAGS", "-mfloat-abi=hard")
+					}
+				}
+			} else {
+				switch openwrt {
+				case "x86_64":
+					appendEnv("CGO_CFLAGS", "--target=x86_64-openwrt-linux-musl -m64 -march=x86-64 -msse3")
+					appendEnv("CGO_LDFLAGS", "--target=x86_64-openwrt-linux-musl -m64")
+				case "x86":
+					appendEnv("CGO_CFLAGS", "--target=i486-openwrt-linux-musl -m32 -mfpmath=sse -msse3")
+					appendEnv("CGO_LDFLAGS", "-Wl,--dynamic-linker=/lib/ld-musl-i386.so.1 --target=i486-openwrt-linux-musl -m32")
+				case "mipsel_mips32":
+					appendEnv("CGO_CFLAGS", "--target=mipsel-openwrt-linux-musl -march=mipsel -mcpu=mips32 -msoft-float")
+					appendEnv("CGO_LDFLAGS", "-Wl,--dynamic-linker=/lib/ld-musl-mipsel-sf.so.1 --target=mipsel-openwrt-linux-musl -mips32")
+					os.Setenv("GOMIPS", "softfloat")
+				case "mipsel_24kc":
+					appendEnv("CGO_CFLAGS", "--target=mipsel-openwrt-linux-musl -march=mipsel -mcpu=mips32r2 -msoft-float -mtune=24kc")
+					appendEnv("CGO_LDFLAGS", "-Wl,--dynamic-linker=/lib/ld-musl-mipsel-sf.so.1 --target=mipsel-openwrt-linux-musl -mips32r2")
+					os.Setenv("GOMIPS", "softfloat")
+				case "mipsel_74kc":
+					appendEnv("CGO_CFLAGS", "--target=mipsel-openwrt-linux-musl -march=mipsel -mcpu=mips32r2 -msoft-float -mtune=74kc")
+					appendEnv("CGO_LDFLAGS", "-Wl,--dynamic-linker=/lib/ld-musl-mipsel-sf.so.1 --target=mipsel-openwrt-linux-musl -mips32r2")
+					os.Setenv("GOMIPS", "softfloat")
 				}
 			}
 		} else {

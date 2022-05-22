@@ -107,6 +107,19 @@ jobs:
             goos: linux
             goarch: arm
             openwrt: arm_arm926ej-s
+
+          - name: openwrt-mipsel_mips32
+            goos: linux
+            goarch: mipsle
+            openwrt: mipsel_mips32
+          - name: openwrt-mipsel_24kc
+            goos: linux
+            goarch: mipsle
+            openwrt: mipsel_24kc
+          - name: openwrt-mipsel_74kc
+            goos: linux
+            goarch: mipsle
+            openwrt: mipsel_74kc
     steps:
       - name: Checkout
         uses: actions/checkout@v2
