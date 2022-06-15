@@ -18,11 +18,11 @@ import (
 	"syscall"
 
 	"github.com/sagernet/cronet-go"
+	"github.com/sagernet/sing-tools/extensions/log"
 	"github.com/sagernet/sing/common"
 	"github.com/sagernet/sing/common/buf"
 	"github.com/sagernet/sing/common/bufio"
 	E "github.com/sagernet/sing/common/exceptions"
-	"github.com/sagernet/sing/common/log"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
 	"github.com/sagernet/sing/common/redir"
@@ -299,7 +299,7 @@ func (c *PaddingConn) Read(p []byte) (n int, err error) {
 			return
 		}
 		originalDataSize := int(binary.BigEndian.Uint16(paddingHdr[:2]))
-		paddingSize := int(paddingHdr[3])
+		paddingSize := int(paddingHdr[2])
 		if len(p) > originalDataSize {
 			p = p[:originalDataSize]
 		}
@@ -322,7 +322,7 @@ func (c *PaddingConn) Write(p []byte) (n int, err error) {
 		defer runtime.KeepAlive(_buffer)
 		buffer := common.Dup(_buffer)
 		binary.BigEndian.PutUint16(buffer, uint16(len(p)))
-		buffer[3] = byte(paddingSize)
+		buffer[2] = byte(paddingSize)
 		copy(buffer[3:], p)
 		_, err = c.Conn.Write(buffer)
 		if err != nil {
@@ -339,7 +339,7 @@ func (c *PaddingConn) WriteBuffer(buffer *buf.Buffer) error {
 		paddingSize := rand.Intn(256)
 		header := buffer.ExtendHeader(3)
 		binary.BigEndian.PutUint16(header, uint16(bufferLen))
-		header[3] = byte(paddingSize)
+		header[2] = byte(paddingSize)
 		buffer.Extend(paddingSize)
 		c.writePadding++
 	}

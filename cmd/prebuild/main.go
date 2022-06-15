@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"github.com/sagernet/sing-tools/extensions/log"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -16,7 +17,6 @@ import (
 	"github.com/klauspost/compress/gzip"
 	"github.com/klauspost/compress/zip"
 	"github.com/sagernet/sing/common"
-	"github.com/sagernet/sing/common/log"
 	"github.com/ulikunitz/xz"
 )
 
@@ -101,7 +101,7 @@ func main() {
 
 	if !common.FileExists("libcronet.so") {
 		client := github.NewClient(nil)
-		packageRelease, _, err := client.Repositories.GetReleaseByTag(context.Background(), "klzgrad", "naiveproxy", "cronet-test8")
+		packageRelease, _, err := client.Repositories.GetReleaseByTag(context.Background(), "klzgrad", "naiveproxy", "v102.0.5005.61-1")
 		if err != nil {
 			logger.Fatal(err)
 		}

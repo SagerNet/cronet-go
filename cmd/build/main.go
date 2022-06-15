@@ -8,8 +8,8 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/sagernet/sing-tools/extensions/log"
 	"github.com/sagernet/sing/common"
-	"github.com/sagernet/sing/common/log"
 )
 
 var logger = log.NewLogger("build")
@@ -67,7 +67,7 @@ func main() {
 					appendEnv("CGO_CFLAGS", "-mcpu=cortex-a53")
 				case "aarch64_cortex-a72":
 					appendEnv("CGO_CFLAGS", "-mcpu=cortex-a72")
-					//case "aarch64_generic":
+					// case "aarch64_generic":
 				}
 			} else if strings.HasPrefix(openwrt, "arm") {
 				appendEnv("CGO_CFLAGS", "--target=arm-openwrt-linux-muslgnueabi")
