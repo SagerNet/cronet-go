@@ -47,79 +47,6 @@ jobs:
           - name: linux-mips64el
             goos: linux
             goarch: mips64le
-
-          # openwrt
-          - name: openwrt-x86_64
-            goos: linux
-            goarch: amd64
-            openwrt: x86_64
-          - name: openwrt-x86
-            goos: linux
-            goarch: 386
-            openwrt: x86
-
-          - name: openwrt-aarch64_generic
-            goos: linux
-            goarch: arm64
-            openwrt: aarch64_generic
-          - name: openwrt-aarch64_cortex-a53
-            goos: linux
-            goarch: arm64
-            openwrt: aarch64_cortex-a53
-          - name: openwrt-aarch64_cortex-a72
-            goos: linux
-            goarch: arm64
-            openwrt: aarch64_cortex-a72
-
-          - name: openwrt-arm_cortex-a5_vfpv4
-            goos: linux
-            goarch: arm
-            openwrt: arm_cortex-a5_vfpv4
-          - name: openwrt-arm_cortex-a7_neon-vfpv4
-            goos: linux
-            goarch: arm
-            openwrt: arm_cortex-a7_neon-vfpv4
-          - name: openwrt-arm_cortex-a8_vfpv3
-            goos: linux
-            goarch: arm
-            openwrt: arm_cortex-a8_vfpv3
-          - name: openwrt-arm_cortex-a9
-            goos: linux
-            goarch: arm
-            openwrt: arm_cortex-a9
-          - name: openwrt-arm_cortex-a9_neon
-            goos: linux
-            goarch: arm
-            openwrt: arm_cortex-a9_neon
-          - name: openwrt-arm_cortex-a9_vfpv3-d16
-            goos: linux
-            goarch: arm
-            openwrt: arm_cortex-a9_vfpv3-d16
-          - name: openwrt-arm_cortex-a15_neon-vfpv4
-            goos: linux
-            goarch: arm
-            openwrt: arm_cortex-a15_neon-vfpv4
-          - name: openwrt-arm_arm1176jzf-s_vfp
-            goos: linux
-            goarch: arm
-            openwrt: arm_arm1176jzf-s_vfp
-          - name: openwrt-arm_arm926ej-s
-            goos: linux
-            goarch: arm
-            openwrt: arm_arm926ej-s
-
-          - name: openwrt-mipsel_mips32
-            goos: linux
-            goarch: mipsle
-            openwrt: mipsel_mips32
-          - name: openwrt-mipsel_24kc
-            goos: linux
-            goarch: mipsle
-            openwrt: mipsel_24kc
-          - name: openwrt-mipsel_74kc
-            goos: linux
-            goarch: mipsle
-            openwrt: mipsel_74kc
     steps:
       - name: Checkout
         uses: actions/checkout@v2
@@ -129,25 +56,10 @@ jobs:
         uses: actions/setup-go@v2
         with:
           go-version: 1.18.1
-      - name: Cache LLVM
-        uses: actions/cache@v2
-        with:
-          path: llvm
-          key: llvm-cache-${{ hashFiles('cmd/prebuild/*') }}
-      - name: Cache Sysroot
-        uses: actions/cache@v2
-        with:
-          path: |
-            sysroot
-            *.h
-            *.so
-            *.a
-            *.lds
-          key: sysroot-cache-${{ hashFiles('cmd/prebuild/*') }}-${{ matrix.name }}
       - name: Pre Build
         run: |
           go build -v -o prebuild ./cmd/prebuild
-          go build -v -o build ./cmd/build
+          go build -v -o gobuild ./cmd/build
       - name: Prepare toolchains
         env:
           GOOS: ${{ matrix.goos }}
@@ -161,15 +73,15 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           OPENWRT: ${{ matrix.openwrt }}
         run: |
-          ./build -v -o naive-go ./naive
+          ./gobuild -v -o naive-go ./naive
       - name: Static Build
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           OPENWRT: ${{ matrix.openwrt }}
         run: |
-          ./build -v -o naive-go -tags static -trimpath -ldflags "-s -w -buildid=" ./naive
-          ./llvm/bin/llvm-strip ./naive-go
+          ./gobuild -v -o naive-go -tags cronet_static -trimpath -ldflags "-s -w -buildid=" ./naive
+          ./build/llvm/bin/llvm-strip ./naive-go
       - name: Upload artifact
         uses: actions/upload-artifact@v3
         with:

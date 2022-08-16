@@ -4,7 +4,6 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
-	"github.com/sagernet/sing-tools/extensions/log"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -13,23 +12,41 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/sagernet/sing-tools/extensions/log"
+	"github.com/sagernet/sing/common"
+
 	"github.com/google/go-github/v44/github"
 	"github.com/klauspost/compress/gzip"
 	"github.com/klauspost/compress/zip"
-	"github.com/sagernet/sing/common"
 	"github.com/ulikunitz/xz"
 )
 
 var logger = log.NewLogger("prebuild")
 
 const (
-	clangVersion = "llvmorg-15-init-3677-g8133778d-4"
+	clangVersion = "llvmorg-15-init-11722-g3f3a235a-2"
 )
 
+var (
+	goos   string
+	goarch string
+)
+
+func init() {
+	goos = os.Getenv("GOOS")
+	if goos == "" {
+		goos = runtime.GOOS
+	}
+	goarch = os.Getenv("GOARCH")
+	if goarch == "" {
+		goarch = runtime.GOARCH
+	}
+}
+
 func main() {
-	if !common.FileExists("llvm/bin/clang") {
-		os.RemoveAll("llvm")
-		os.MkdirAll("llvm", 0o755)
+	if !common.FileExists("build/llvm/bin/clang") {
+		os.RemoveAll("build/llvm")
+		os.MkdirAll("build/llvm", 0o755)
 		clangDownload := os.ExpandEnv("https://commondatastorage.googleapis.com/chromium-browser-clang/" + clangOsString() + "/clang-" + clangVersion + ".tgz")
 		logger.Info(">> ", clangDownload)
 		clangDownloadResponse, err := http.Get(clangDownload)
@@ -50,7 +67,7 @@ func main() {
 				}
 				logger.Fatal(err)
 			}
-			path := filepath.Join("llvm", header.Name)
+			path := filepath.Join("build/llvm", header.Name)
 			if header.FileInfo().IsDir() {
 				continue
 			}
@@ -60,7 +77,10 @@ func main() {
 				linkName[path], _ = filepath.Abs(linkName[path])
 				continue
 			}
-			os.MkdirAll(filepath.Dir(path), 0o755)
+			err = os.MkdirAll(filepath.Dir(path), 0o755)
+			if err != nil {
+				return
+			}
 			file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, os.FileMode(header.Mode))
 			if err != nil {
 				logger.Fatal(err)
@@ -99,14 +119,15 @@ func main() {
 		}
 	}
 
-	if !common.FileExists("libcronet.so") {
+	output := filepath.Join("build", goos, goarch)
+	if !common.FileExists(filepath.Join(output, "libcronet.so")) {
 		client := github.NewClient(nil)
-		packageRelease, _, err := client.Repositories.GetReleaseByTag(context.Background(), "klzgrad", "naiveproxy", "v102.0.5005.61-1")
+		packageRelease, _, err := client.Repositories.GetReleaseByTag(context.Background(), "klzgrad", "naiveproxy", "v104.0.5112.79-2")
 		if err != nil {
 			logger.Fatal(err)
 		}
 		if packageRelease == nil {
-			logger.Fatal("cronet-test8 release not found")
+			logger.Fatal("release not found")
 		}
 		var packageAsset *github.ReleaseAsset
 		hostOs := naiveOsString()
@@ -154,10 +175,10 @@ func main() {
 					}
 				}
 
-				path := header.Name[strings.Index(header.Name, "/")+1:]
+				path := filepath.Join(output, header.Name[strings.Index(header.Name, "/")+1:])
 				logger.Info(">> ", path)
 				if header.Linkname != "" {
-					linkName[path] = filepath.Dir(header.Name[strings.Index(header.Name, "/")+1:]) + "/" + header.Linkname
+					linkName[path] = filepath.Join(output, filepath.Dir(header.Name[strings.Index(header.Name, "/")+1:])+"/"+header.Linkname)
 					linkName[path], _ = filepath.Abs(linkName[path])
 					continue
 				}
@@ -260,15 +281,6 @@ func naiveOsString() string {
 	openwrt := os.Getenv("OPENWRT")
 	if openwrt != "" {
 		return "openwrt-" + openwrt
-	}
-
-	goos := os.Getenv("GOOS")
-	if goos == "" {
-		goos = runtime.GOOS
-	}
-	goarch := os.Getenv("GOARCH")
-	if goarch == "" {
-		goarch = runtime.GOARCH
 	}
 
 	switch goos {

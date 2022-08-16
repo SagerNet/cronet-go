@@ -28,6 +28,7 @@ import (
 	"github.com/sagernet/sing/common/redir"
 	"github.com/sagernet/sing/common/rw"
 	"github.com/sagernet/sing/transport/mixed"
+
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
