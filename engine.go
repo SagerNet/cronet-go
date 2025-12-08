@@ -146,3 +146,41 @@ func (e Engine) SetTrustedRootCertificates(pemRootCerts string) bool {
 	C.Cronet_Engine_SetMockCertVerifierForTesting(e.ptr, certVerifier)
 	return true
 }
+
+// SetCertVerifierWithPublicKeySHA256 sets a certificate verifier that validates
+// certificates by matching the public key SHA256 hash, bypassing CA chain validation.
+// This is similar to sing-box's certificate_public_key_sha256 behavior.
+// Must be called before StartWithParams().
+// hashes should be raw 32-byte SHA256 hashes of the certificate's SPKI.
+// Returns true if the verifier was successfully set, false if no hashes provided.
+func (e Engine) SetCertVerifierWithPublicKeySHA256(hashes [][]byte) bool {
+	if len(hashes) == 0 {
+		return false
+	}
+	// Allocate C memory for hashes to avoid CGO pointer restrictions
+	cHashes := make([]*C.uint8_t, len(hashes))
+	for i, hash := range hashes {
+		if len(hash) != 32 {
+			return false
+		}
+		// Allocate C memory and copy hash data
+		cHash := (*C.uint8_t)(C.malloc(32))
+		for j := 0; j < 32; j++ {
+			*(*C.uint8_t)(unsafe.Pointer(uintptr(unsafe.Pointer(cHash)) + uintptr(j))) = C.uint8_t(hash[j])
+		}
+		cHashes[i] = cHash
+	}
+	certVerifier := C.Cronet_CreateCertVerifierWithPublicKeySHA256(
+		(**C.uint8_t)(unsafe.Pointer(&cHashes[0])),
+		C.size_t(len(hashes)),
+	)
+	// Free C memory
+	for _, cHash := range cHashes {
+		C.free(unsafe.Pointer(cHash))
+	}
+	if certVerifier == nil {
+		return false
+	}
+	C.Cronet_Engine_SetMockCertVerifierForTesting(e.ptr, certVerifier)
+	return true
+}
