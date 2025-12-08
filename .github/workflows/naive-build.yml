@@ -4,10 +4,6 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths:
-      - 'naiveproxy'
-      - 'cmd/build-naive'
-      - '.github/workflows/naive-build.yml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
@@ -66,7 +62,10 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: cronet-linux-${{ matrix.arch }}
-          path: lib/
+          path: |
+            lib/
+            include/
+            cgo_*.go
 
   darwin:
     runs-on: macos-15
@@ -119,7 +118,10 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: cronet-${{ matrix.name }}
-          path: lib/
+          path: |
+            lib/
+            include/
+            cgo_*.go
 
   windows:
     runs-on: windows-2022
@@ -167,7 +169,10 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: cronet-windows-${{ matrix.arch }}
-          path: lib/
+          path: |
+            lib/
+            include/
+            cgo_*.go
 
   android:
     runs-on: ubuntu-22.04
@@ -215,7 +220,10 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: cronet-android-${{ matrix.arch }}
-          path: lib/
+          path: |
+            lib/
+            include/
+            cgo_*.go
 
   publish:
     needs: [linux, darwin, windows, android]
@@ -234,11 +242,10 @@ jobs:
 
       - name: Merge artifacts
         run: |
-          mkdir -p lib
           for dir in artifacts/cronet-*/; do
-            cp -r "$dir"/* lib/
+            cp -r "$dir"/* .
           done
-          ls -laR lib/
+          ls -laR lib/ include/ cgo_*.go
 
       - name: Configure git
         run: |

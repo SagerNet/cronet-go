@@ -1,6 +1,6 @@
 module github.com/sagernet/cronet-go
 
-go 1.18
+go 1.20
 
 require (
 	github.com/sagernet/sing v0.7.13
