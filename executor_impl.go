@@ -40,7 +40,8 @@ func cronetExecutorExecute(self C.Cronet_ExecutorPtr, command C.Cronet_RunnableP
 	executorAccess.RLock()
 	executeFunc := executors[uintptr(unsafe.Pointer(self))]
 	executorAccess.RUnlock()
-	if executeFunc != nil {
-		executeFunc(Executor{self}, Runnable{command})
+	if executeFunc == nil {
+		panic("nil executor")
 	}
+	executeFunc(Executor{self}, Runnable{command})
 }

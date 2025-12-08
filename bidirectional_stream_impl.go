@@ -47,7 +47,7 @@ func instanceOfBidirectionalStream(stream *C.bidirectional_stream) Bidirectional
 func cronetBidirectionalStreamOnStreamReady(stream *C.bidirectional_stream) {
 	callback := instanceOfBidirectionalStream(stream)
 	if callback == nil {
-		return
+		panic("nil bidirectional stream callback")
 	}
 	callback.OnStreamReady(BidirectionalStream{stream})
 }
@@ -56,7 +56,7 @@ func cronetBidirectionalStreamOnStreamReady(stream *C.bidirectional_stream) {
 func cronetBidirectionalStreamOnResponseHeadersReceived(stream *C.bidirectional_stream, headers *C.bidirectional_stream_header_array, negotiatedProtocol *C.char) {
 	callback := instanceOfBidirectionalStream(stream)
 	if callback == nil {
-		return
+		panic("nil bidirectional stream callback")
 	}
 	headerMap := make(map[string]string, int(headers.count))
 	var hdrP *C.bidirectional_stream_header
@@ -76,7 +76,7 @@ func cronetBidirectionalStreamOnResponseHeadersReceived(stream *C.bidirectional_
 func cronetBidirectionalStreamOnReadCompleted(stream *C.bidirectional_stream, data *C.char, bytesRead C.int) {
 	callback := instanceOfBidirectionalStream(stream)
 	if callback == nil {
-		return
+		panic("nil bidirectional stream callback")
 	}
 	callback.OnReadCompleted(BidirectionalStream{stream}, int(bytesRead))
 }
@@ -85,7 +85,7 @@ func cronetBidirectionalStreamOnReadCompleted(stream *C.bidirectional_stream, da
 func cronetBidirectionalStreamOnWriteCompleted(stream *C.bidirectional_stream, data *C.char) {
 	callback := instanceOfBidirectionalStream(stream)
 	if callback == nil {
-		return
+		panic("nil bidirectional stream callback")
 	}
 	callback.OnWriteCompleted(BidirectionalStream{stream})
 }
@@ -94,7 +94,7 @@ func cronetBidirectionalStreamOnWriteCompleted(stream *C.bidirectional_stream, d
 func cronetBidirectionalStreamOnResponseTrailersReceived(stream *C.bidirectional_stream, trailers *C.bidirectional_stream_header_array) {
 	callback := instanceOfBidirectionalStream(stream)
 	if callback == nil {
-		return
+		panic("nil bidirectional stream callback")
 	}
 	trailersMap := make(map[string]string, int(trailers.count))
 	var hdrP *C.bidirectional_stream_header
@@ -114,7 +114,7 @@ func cronetBidirectionalStreamOnResponseTrailersReceived(stream *C.bidirectional
 func cronetBidirectionalStreamOnSucceed(stream *C.bidirectional_stream) {
 	callback := instanceOfBidirectionalStream(stream)
 	if callback == nil {
-		return
+		panic("nil bidirectional stream callback")
 	}
 	callback.OnSucceeded(BidirectionalStream{stream})
 }
@@ -123,7 +123,7 @@ func cronetBidirectionalStreamOnSucceed(stream *C.bidirectional_stream) {
 func cronetBidirectionalStreamOnFailed(stream *C.bidirectional_stream, netError C.int) {
 	callback := instanceOfBidirectionalStream(stream)
 	if callback == nil {
-		return
+		panic("nil bidirectional stream callback")
 	}
 	callback.OnFailed(BidirectionalStream{stream}, int(netError))
 }
@@ -132,7 +132,7 @@ func cronetBidirectionalStreamOnFailed(stream *C.bidirectional_stream, netError 
 func cronetBidirectionalStreamOnCanceled(stream *C.bidirectional_stream) {
 	callback := instanceOfBidirectionalStream(stream)
 	if callback == nil {
-		return
+		panic("nil bidirectional stream callback")
 	}
 	callback.OnCanceled(BidirectionalStream{stream})
 }

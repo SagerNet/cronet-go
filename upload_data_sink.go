@@ -49,3 +49,11 @@ func (s UploadDataSink) OnRewindError(message string) {
 	C.Cronet_UploadDataSink_OnRewindError(s.ptr, cMessage)
 	C.free(unsafe.Pointer(cMessage))
 }
+
+func (s UploadDataSink) SetClientContext(context unsafe.Pointer) {
+	C.Cronet_UploadDataSink_SetClientContext(s.ptr, C.Cronet_ClientContext(context))
+}
+
+func (s UploadDataSink) ClientContext() unsafe.Pointer {
+	return unsafe.Pointer(C.Cronet_UploadDataSink_GetClientContext(s.ptr))
+}

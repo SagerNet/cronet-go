@@ -21,10 +21,13 @@ func NewURLRequestStatusListener(onStatusFunc URLRequestStatusListenerOnStatusFu
 
 func (l URLRequestStatusListener) Destroy() {
 	C.Cronet_UrlRequestStatusListener_Destroy(l.ptr)
+	urlRequestStatusListenerAccess.Lock()
+	delete(urlRequestStatusListenerMap, uintptr(unsafe.Pointer(l.ptr)))
+	urlRequestStatusListenerAccess.Unlock()
 }
 
 var (
-	urlRequestStatusListenerAccess sync.Mutex
+	urlRequestStatusListenerAccess sync.RWMutex
 	urlRequestStatusListenerMap    map[uintptr]URLRequestStatusListenerOnStatusFunc
 )
 
@@ -37,7 +40,7 @@ func cronetURLRequestStatusListenerOnStatus(self C.Cronet_UrlRequestStatusListen
 	ptr := uintptr(unsafe.Pointer(self))
 	urlRequestStatusListenerAccess.Lock()
 	listener := urlRequestStatusListenerMap[ptr]
-	delete(urlRequestCallbackMap, ptr)
+	delete(urlRequestStatusListenerMap, ptr)
 	urlRequestStatusListenerAccess.Unlock()
 	if listener == nil {
 		panic("nil url status listener")

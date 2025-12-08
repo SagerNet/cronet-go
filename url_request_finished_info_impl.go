@@ -21,6 +21,9 @@ func NewURLRequestFinishedInfoListener(finishedFunc URLRequestFinishedInfoListen
 
 func (l URLRequestFinishedInfoListener) Destroy() {
 	C.Cronet_RequestFinishedInfoListener_Destroy(l.ptr)
+	urlRequestFinishedInfoListenerAccess.Lock()
+	delete(urlRequestFinishedInfoListenerMap, uintptr(unsafe.Pointer(l.ptr)))
+	urlRequestFinishedInfoListenerAccess.Unlock()
 }
 
 var (

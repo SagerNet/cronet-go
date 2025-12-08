@@ -5,9 +5,19 @@ package cronet
 // #include <cronet_c.h>
 import "C"
 
+import "unsafe"
+
 // Error is the base error passed to URLRequestCallbackHandler.OnFailed().
 type Error struct {
 	ptr C.Cronet_ErrorPtr
+}
+
+func NewError() Error {
+	return Error{C.Cronet_Error_Create()}
+}
+
+func (e Error) Destroy() {
+	C.Cronet_Error_Destroy(e.ptr)
 }
 
 type ErrorCode int
@@ -90,4 +100,26 @@ func (e Error) Retryable() bool {
 // QuicErrorCode</a> when the ErrorCode() code is ErrorCodeErrorQuicProtocolFailed.
 func (e Error) QuicDetailedErrorCode() int {
 	return int(C.Cronet_Error_quic_detailed_error_code_get(e.ptr))
+}
+
+func (e Error) SetErrorCode(code ErrorCode) {
+	C.Cronet_Error_error_code_set(e.ptr, C.Cronet_Error_ERROR_CODE(code))
+}
+
+func (e Error) SetMessage(message string) {
+	cMessage := C.CString(message)
+	C.Cronet_Error_message_set(e.ptr, cMessage)
+	C.free(unsafe.Pointer(cMessage))
+}
+
+func (e Error) SetInternalErrorCode(code int32) {
+	C.Cronet_Error_internal_error_code_set(e.ptr, C.int32_t(code))
+}
+
+func (e Error) SetRetryable(retryable bool) {
+	C.Cronet_Error_immediately_retryable_set(e.ptr, C.bool(retryable))
+}
+
+func (e Error) SetQuicDetailedErrorCode(code int32) {
+	C.Cronet_Error_quic_detailed_error_code_set(e.ptr, C.int32_t(code))
 }

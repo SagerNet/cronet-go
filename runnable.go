@@ -5,6 +5,8 @@ package cronet
 // #include <cronet_c.h>
 import "C"
 
+import "unsafe"
+
 // Runnable is an interface to run commands on the Executor.
 //
 // Note: In general creating Runnables should only be done by Cronet. Runnables
@@ -19,10 +21,14 @@ type Runnable struct {
 	ptr C.Cronet_RunnablePtr
 }
 
-func (r Runnable) Destroy() {
-	C.Cronet_Runnable_Destroy(r.ptr)
-}
-
 func (r Runnable) Run() {
 	C.Cronet_Runnable_Run(r.ptr)
+}
+
+func (r Runnable) SetClientContext(context unsafe.Pointer) {
+	C.Cronet_Runnable_SetClientContext(r.ptr, C.Cronet_ClientContext(context))
+}
+
+func (r Runnable) ClientContext() unsafe.Pointer {
+	return unsafe.Pointer(C.Cronet_Runnable_GetClientContext(r.ptr))
 }

@@ -104,3 +104,11 @@ func (r URLRequest) IsDone() bool {
 func (r URLRequest) GetStatus(listener URLRequestStatusListener) {
 	C.Cronet_UrlRequest_GetStatus(r.ptr, listener.ptr)
 }
+
+func (r URLRequest) SetClientContext(context unsafe.Pointer) {
+	C.Cronet_UrlRequest_SetClientContext(r.ptr, C.Cronet_ClientContext(context))
+}
+
+func (r URLRequest) ClientContext() unsafe.Pointer {
+	return unsafe.Pointer(C.Cronet_UrlRequest_GetClientContext(r.ptr))
+}

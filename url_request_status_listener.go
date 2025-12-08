@@ -5,10 +5,20 @@ package cronet
 // #include <cronet_c.h>
 import "C"
 
+import "unsafe"
+
 // URLRequestStatusListener listener class used with URLRequest.GetStatus() to receive the status of a
 // URLRequest.
 type URLRequestStatusListener struct {
 	ptr C.Cronet_UrlRequestStatusListenerPtr
+}
+
+func (l URLRequestStatusListener) SetClientContext(context unsafe.Pointer) {
+	C.Cronet_UrlRequestStatusListener_SetClientContext(l.ptr, C.Cronet_ClientContext(context))
+}
+
+func (l URLRequestStatusListener) ClientContext() unsafe.Pointer {
+	return unsafe.Pointer(C.Cronet_UrlRequestStatusListener_GetClientContext(l.ptr))
 }
 
 // URLRequestStatusListenerOnStatusFunc invoked on UrlRequest's Executor when request status is obtained.

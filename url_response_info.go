@@ -5,8 +5,14 @@ package cronet
 // #include <cronet_c.h>
 import "C"
 
+import "unsafe"
+
 type URLResponseInfo struct {
 	ptr C.Cronet_UrlResponseInfoPtr
+}
+
+func NewURLResponseInfo() URLResponseInfo {
+	return URLResponseInfo{C.Cronet_UrlResponseInfo_Create()}
 }
 
 func (i URLResponseInfo) Destroy() {
@@ -77,4 +83,58 @@ func (i URLResponseInfo) ProxyServer() string {
 // headers and data from all redirects.
 func (i URLResponseInfo) ReceivedByteCount() int64 {
 	return int64(C.Cronet_UrlResponseInfo_received_byte_count_get(i.ptr))
+}
+
+func (i URLResponseInfo) SetURL(url string) {
+	cURL := C.CString(url)
+	C.Cronet_UrlResponseInfo_url_set(i.ptr, cURL)
+	C.free(unsafe.Pointer(cURL))
+}
+
+func (i URLResponseInfo) AddURLChain(url string) {
+	cURL := C.CString(url)
+	C.Cronet_UrlResponseInfo_url_chain_add(i.ptr, cURL)
+	C.free(unsafe.Pointer(cURL))
+}
+
+func (i URLResponseInfo) ClearURLChain() {
+	C.Cronet_UrlResponseInfo_url_chain_clear(i.ptr)
+}
+
+func (i URLResponseInfo) SetStatusCode(code int32) {
+	C.Cronet_UrlResponseInfo_http_status_code_set(i.ptr, C.int32_t(code))
+}
+
+func (i URLResponseInfo) SetStatusText(text string) {
+	cText := C.CString(text)
+	C.Cronet_UrlResponseInfo_http_status_text_set(i.ptr, cText)
+	C.free(unsafe.Pointer(cText))
+}
+
+func (i URLResponseInfo) AddHeader(header HTTPHeader) {
+	C.Cronet_UrlResponseInfo_all_headers_list_add(i.ptr, header.ptr)
+}
+
+func (i URLResponseInfo) ClearHeaders() {
+	C.Cronet_UrlResponseInfo_all_headers_list_clear(i.ptr)
+}
+
+func (i URLResponseInfo) SetCached(cached bool) {
+	C.Cronet_UrlResponseInfo_was_cached_set(i.ptr, C.bool(cached))
+}
+
+func (i URLResponseInfo) SetNegotiatedProtocol(protocol string) {
+	cProtocol := C.CString(protocol)
+	C.Cronet_UrlResponseInfo_negotiated_protocol_set(i.ptr, cProtocol)
+	C.free(unsafe.Pointer(cProtocol))
+}
+
+func (i URLResponseInfo) SetProxyServer(proxy string) {
+	cProxy := C.CString(proxy)
+	C.Cronet_UrlResponseInfo_proxy_server_set(i.ptr, cProxy)
+	C.free(unsafe.Pointer(cProxy))
+}
+
+func (i URLResponseInfo) SetReceivedByteCount(count int64) {
+	C.Cronet_UrlResponseInfo_received_byte_count_set(i.ptr, C.int64_t(count))
 }

@@ -120,3 +120,11 @@ func (e Engine) AddRequestFinishListener(listener URLRequestFinishedInfoListener
 func (e Engine) RemoveRequestFinishListener(listener URLRequestFinishedInfoListener) {
 	C.Cronet_Engine_RemoveRequestFinishedListener(e.ptr, listener.ptr)
 }
+
+func (e Engine) SetClientContext(context unsafe.Pointer) {
+	C.Cronet_Engine_SetClientContext(e.ptr, C.Cronet_ClientContext(context))
+}
+
+func (e Engine) ClientContext() unsafe.Pointer {
+	return unsafe.Pointer(C.Cronet_Engine_GetClientContext(e.ptr))
+}

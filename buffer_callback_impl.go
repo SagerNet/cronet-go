@@ -22,7 +22,7 @@ func NewBufferCallback(callbackFunc BufferCallbackFunc) BufferCallback {
 }
 
 var (
-	bufferCallbackAccess sync.Mutex
+	bufferCallbackAccess sync.RWMutex
 	bufferCallbackMap    map[uintptr]BufferCallbackFunc
 )
 

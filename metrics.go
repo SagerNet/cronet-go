@@ -5,6 +5,14 @@ package cronet
 // #include <cronet_c.h>
 import "C"
 
+func NewMetrics() Metrics {
+	return Metrics{C.Cronet_Metrics_Create()}
+}
+
+func (m Metrics) Destroy() {
+	C.Cronet_Metrics_Destroy(m.ptr)
+}
+
 // Metrics
 // Represents metrics collected for a single request. Most of these metrics are
 // timestamps for events during the lifetime of the request, which can be used
@@ -178,4 +186,68 @@ func (m Metrics) SentByteCount() int64 {
 // collected. Number of bytes does not include any previous redirects.
 func (m Metrics) ReceivedByteCount() int64 {
 	return int64(C.Cronet_Metrics_received_byte_count_get(m.ptr))
+}
+
+func (m Metrics) SetRequestStart(t DateTime) {
+	C.Cronet_Metrics_request_start_set(m.ptr, t.ptr)
+}
+
+func (m Metrics) SetDNSStart(t DateTime) {
+	C.Cronet_Metrics_dns_start_set(m.ptr, t.ptr)
+}
+
+func (m Metrics) SetDNSEnd(t DateTime) {
+	C.Cronet_Metrics_dns_end_set(m.ptr, t.ptr)
+}
+
+func (m Metrics) SetConnectStart(t DateTime) {
+	C.Cronet_Metrics_connect_start_set(m.ptr, t.ptr)
+}
+
+func (m Metrics) SetConnectEnd(t DateTime) {
+	C.Cronet_Metrics_connect_end_set(m.ptr, t.ptr)
+}
+
+func (m Metrics) SetSSLStart(t DateTime) {
+	C.Cronet_Metrics_ssl_start_set(m.ptr, t.ptr)
+}
+
+func (m Metrics) SetSSLEnd(t DateTime) {
+	C.Cronet_Metrics_ssl_end_set(m.ptr, t.ptr)
+}
+
+func (m Metrics) SetSendingStart(t DateTime) {
+	C.Cronet_Metrics_sending_start_set(m.ptr, t.ptr)
+}
+
+func (m Metrics) SetSendingEnd(t DateTime) {
+	C.Cronet_Metrics_sending_end_set(m.ptr, t.ptr)
+}
+
+func (m Metrics) SetPushStart(t DateTime) {
+	C.Cronet_Metrics_push_start_set(m.ptr, t.ptr)
+}
+
+func (m Metrics) SetPushEnd(t DateTime) {
+	C.Cronet_Metrics_push_end_set(m.ptr, t.ptr)
+}
+
+func (m Metrics) SetResponseStart(t DateTime) {
+	C.Cronet_Metrics_response_start_set(m.ptr, t.ptr)
+}
+
+func (m Metrics) SetRequestEnd(t DateTime) {
+	C.Cronet_Metrics_request_end_set(m.ptr, t.ptr)
+}
+
+func (m Metrics) SetSocketReused(reused bool) {
+	C.Cronet_Metrics_socket_reused_set(m.ptr, C.bool(reused))
+}
+
+func (m Metrics) SetSentByteCount(count int64) {
+	C.Cronet_Metrics_sent_byte_count_set(m.ptr, C.int64_t(count))
+}
+
+func (m Metrics) SetReceivedByteCount(count int64) {
+	C.Cronet_Metrics_received_byte_count_set(m.ptr, C.int64_t(count))
 }

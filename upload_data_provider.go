@@ -5,6 +5,8 @@ package cronet
 // #include <cronet_c.h>
 import "C"
 
+import "unsafe"
+
 // UploadDataProvider
 // The interface allowing the embedder to provide an upload body to
 // URLRequest. It supports both non-chunked (size known in advanced) and
@@ -15,6 +17,14 @@ import "C"
 // ends up being sent more than once, or never chunked.
 type UploadDataProvider struct {
 	ptr C.Cronet_UploadDataProviderPtr
+}
+
+func (p UploadDataProvider) SetClientContext(context unsafe.Pointer) {
+	C.Cronet_UploadDataProvider_SetClientContext(p.ptr, C.Cronet_ClientContext(context))
+}
+
+func (p UploadDataProvider) ClientContext() unsafe.Pointer {
+	return unsafe.Pointer(C.Cronet_UploadDataProvider_GetClientContext(p.ptr))
 }
 
 type UploadDataProviderHandler interface {

@@ -5,6 +5,8 @@ package cronet
 // #include <cronet_c.h>
 import "C"
 
+import "unsafe"
+
 // URLRequestCallback
 // Users of Cronet implement this interface to receive callbacks indicating the
 // progress of a URLRequest being processed. An instance of this interface
@@ -13,6 +15,14 @@ import "C"
 // Note:  All methods will be invoked on the Executor passed to URLRequest.InitWithParams();
 type URLRequestCallback struct {
 	ptr C.Cronet_UrlRequestCallbackPtr
+}
+
+func (c URLRequestCallback) SetClientContext(context unsafe.Pointer) {
+	C.Cronet_UrlRequestCallback_SetClientContext(c.ptr, C.Cronet_ClientContext(context))
+}
+
+func (c URLRequestCallback) ClientContext() unsafe.Pointer {
+	return unsafe.Pointer(C.Cronet_UrlRequestCallback_GetClientContext(c.ptr))
 }
 
 type URLRequestCallbackHandler interface {

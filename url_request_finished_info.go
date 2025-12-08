@@ -4,12 +4,17 @@ package cronet
 // #include <stdbool.h>
 // #include <cronet_c.h>
 import "C"
+
 import "unsafe"
 
 // URLRequestFinishedInfo
 // Information about a finished request.
 type URLRequestFinishedInfo struct {
 	ptr C.Cronet_RequestFinishedInfoPtr
+}
+
+func NewURLRequestFinishedInfo() URLRequestFinishedInfo {
+	return URLRequestFinishedInfo{C.Cronet_RequestFinishedInfo_Create()}
 }
 
 func (i URLRequestFinishedInfo) Destroy() {
@@ -58,4 +63,20 @@ func (i URLRequestFinishedInfo) AnnotationAt(index int) unsafe.Pointer {
 // Returns the reason why the request finished.
 func (i URLRequestFinishedInfo) FinishedReason() URLRequestFinishedInfoFinishedReason {
 	return URLRequestFinishedInfoFinishedReason(C.Cronet_RequestFinishedInfo_finished_reason_get(i.ptr))
+}
+
+func (i URLRequestFinishedInfo) SetMetrics(metrics Metrics) {
+	C.Cronet_RequestFinishedInfo_metrics_set(i.ptr, metrics.ptr)
+}
+
+func (i URLRequestFinishedInfo) AddAnnotation(annotation unsafe.Pointer) {
+	C.Cronet_RequestFinishedInfo_annotations_add(i.ptr, C.Cronet_RawDataPtr(annotation))
+}
+
+func (i URLRequestFinishedInfo) ClearAnnotations() {
+	C.Cronet_RequestFinishedInfo_annotations_clear(i.ptr)
+}
+
+func (i URLRequestFinishedInfo) SetFinishedReason(reason URLRequestFinishedInfoFinishedReason) {
+	C.Cronet_RequestFinishedInfo_finished_reason_set(i.ptr, C.Cronet_RequestFinishedInfo_FINISHED_REASON(reason))
 }

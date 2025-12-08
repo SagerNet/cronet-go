@@ -31,11 +31,11 @@ func NewURLRequestCallback(handler URLRequestCallbackHandler) URLRequestCallback
 	return URLRequestCallback{ptr}
 }
 
-func (l URLRequestCallback) Destroy() {
-	C.Cronet_UrlRequestCallback_Destroy(l.ptr)
+func (c URLRequestCallback) Destroy() {
+	C.Cronet_UrlRequestCallback_Destroy(c.ptr)
 	urlRequestCallbackAccess.Lock()
-	delete(urlRequestCallbackMap, uintptr(unsafe.Pointer(l.ptr)))
-	urlRequestCallbackAccess.RUnlock()
+	delete(urlRequestCallbackMap, uintptr(unsafe.Pointer(c.ptr)))
+	urlRequestCallbackAccess.Unlock()
 }
 
 var (

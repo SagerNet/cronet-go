@@ -6,7 +6,6 @@ package cronet
 import "C"
 
 import (
-	"reflect"
 	"unsafe"
 )
 
@@ -46,11 +45,17 @@ func (b Buffer) Data() unsafe.Pointer {
 }
 
 func (b Buffer) DataSlice() []byte {
-	size := int(b.Size())
-	hdr := reflect.SliceHeader{
-		Data: uintptr(b.Data()),
-		Len:  size,
-		Cap:  size,
+	size := b.Size()
+	if size == 0 {
+		return nil
 	}
-	return *(*[]byte)(unsafe.Pointer(&hdr))
+	return unsafe.Slice((*byte)(b.Data()), size)
+}
+
+func (b Buffer) SetClientContext(context unsafe.Pointer) {
+	C.Cronet_Buffer_SetClientContext(b.ptr, C.Cronet_ClientContext(context))
+}
+
+func (b Buffer) ClientContext() unsafe.Pointer {
+	return unsafe.Pointer(C.Cronet_Buffer_GetClientContext(b.ptr))
 }

@@ -81,6 +81,7 @@ func (t *RoundTripper) RoundTrip(request *http.Request) (*http.Response, error) 
 	}
 	responseHandler := urlResponse{
 		checkRedirect: t.CheckRedirect,
+		roundTripper:  t,
 		response: http.Response{
 			Request:    request,
 			Proto:      request.Proto,
@@ -109,10 +110,12 @@ func (t *RoundTripper) RoundTrip(request *http.Request) (*http.Response, error) 
 type urlResponse struct {
 	checkRedirect func(newLocationUrl string) bool
 
-	wg       sync.WaitGroup
-	request  URLRequest
-	response http.Response
-	err      error
+	wg           sync.WaitGroup
+	wgDone       sync.Once
+	request      URLRequest
+	response     http.Response
+	err          error
+	roundTripper *RoundTripper // prevent GC from finalizing RoundTripper while request is in progress
 
 	access     sync.Mutex
 	read       chan int
@@ -162,7 +165,7 @@ func (r *urlResponse) OnResponseStarted(self URLRequestCallback, request URLRequ
 	contentLength, _ := strconv.Atoi(r.response.Header.Get("Content-Length"))
 	r.response.ContentLength = int64(contentLength)
 	r.response.TransferEncoding = r.response.Header.Values("Content-Transfer-Encoding")
-	r.wg.Done()
+	r.wgDone.Do(r.wg.Done)
 }
 
 func (r *urlResponse) Read(p []byte) (n int, err error) {
@@ -197,16 +200,23 @@ func (r *urlResponse) Read(p []byte) (n int, err error) {
 
 func (r *urlResponse) Close() error {
 	r.access.Lock()
-	defer r.access.Unlock()
 	select {
 	case <-r.cancel:
+		r.access.Unlock()
 		return os.ErrClosed
 	case <-r.done:
+		r.access.Unlock()
 		return os.ErrClosed
 	default:
 		close(r.cancel)
 		r.request.Cancel()
 	}
+	r.access.Unlock()
+
+	// Wait for the cancel callback to complete before returning.
+	// This ensures that the request is fully destroyed before the caller
+	// can destroy the engine or executor.
+	<-r.done
 	return nil
 }
 
@@ -254,6 +264,7 @@ func (r *urlResponse) close(request URLRequest, err error) {
 		r.err = err
 	}
 
+	r.wgDone.Do(r.wg.Done)
 	close(r.done)
 	request.Destroy()
 }

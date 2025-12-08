@@ -5,10 +5,20 @@ package cronet
 // #include <cronet_c.h>
 import "C"
 
+import "unsafe"
+
 // URLRequestFinishedInfoListener
 // Listens for finished requests for the purpose of collecting metrics.
 type URLRequestFinishedInfoListener struct {
 	ptr C.Cronet_RequestFinishedInfoListenerPtr
+}
+
+func (l URLRequestFinishedInfoListener) SetClientContext(context unsafe.Pointer) {
+	C.Cronet_RequestFinishedInfoListener_SetClientContext(l.ptr, C.Cronet_ClientContext(context))
+}
+
+func (l URLRequestFinishedInfoListener) ClientContext() unsafe.Pointer {
+	return unsafe.Pointer(C.Cronet_RequestFinishedInfoListener_GetClientContext(l.ptr))
 }
 
 // URLRequestFinishedInfoListenerOnRequestFinishedFunc
