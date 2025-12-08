@@ -43,14 +43,16 @@ jobs:
             naiveproxy/src/third_party/llvm-build/
             naiveproxy/src/gn/
             naiveproxy/src/out/sysroot-build/
-          key: toolchain-linux-${{ matrix.arch }}-${{ hashFiles('naiveproxy/CHROMIUM_VERSION') }}-v${{ env.CACHE_EPOCH }}
-          restore-keys: toolchain-linux-${{ matrix.arch }}-
+          key: v${{ env.CACHE_EPOCH }}-toolchain-linux-${{ matrix.arch }}-${{ hashFiles('naiveproxy/CHROMIUM_VERSION') }}
+          restore-keys: |
+            v${{ env.CACHE_EPOCH }}-toolchain-linux-${{ matrix.arch }}-
       - name: Cache ccache
         uses: actions/cache@v4
         with:
           path: ~/.cache/ccache
-          key: ccache-linux-${{ matrix.arch }}-week${{ steps.week.outputs.week }}-v${{ env.CACHE_EPOCH }}
-          restore-keys: ccache-linux-${{ matrix.arch }}-
+          key: v${{ env.CACHE_EPOCH }}-ccache-linux-${{ matrix.arch }}-${{ steps.week.outputs.week }}
+          restore-keys: |
+            v${{ env.CACHE_EPOCH }}-ccache-linux-${{ matrix.arch }}-
       - name: Install packages
         run: sudo apt update && sudo apt install -y ninja-build ccache
       - name: Reset ccache stats
@@ -94,14 +96,16 @@ jobs:
           path: |
             naiveproxy/src/third_party/llvm-build/
             naiveproxy/src/gn/
-          key: toolchain-${{ matrix.name }}-${{ hashFiles('naiveproxy/CHROMIUM_VERSION') }}-v${{ env.CACHE_EPOCH }}
-          restore-keys: toolchain-${{ matrix.name }}-
+          key: v${{ env.CACHE_EPOCH }}-toolchain-${{ matrix.name }}-${{ hashFiles('naiveproxy/CHROMIUM_VERSION') }}
+          restore-keys: |
+            v${{ env.CACHE_EPOCH }}-toolchain-${{ matrix.name }}-
       - name: Cache ccache
         uses: actions/cache@v4
         with:
           path: ~/Library/Caches/ccache
-          key: ccache-darwin-${{ matrix.name }}-week${{ steps.week.outputs.week }}-v${{ env.CACHE_EPOCH }}
-          restore-keys: ccache-darwin-${{ matrix.name }}-
+          key: v${{ env.CACHE_EPOCH }}-ccache-${{ matrix.name }}-${{ steps.week.outputs.week }}
+          restore-keys: |
+            v${{ env.CACHE_EPOCH }}-ccache-${{ matrix.name }}-
       - name: Install ninja and ccache
         run: brew install ninja ccache
       - name: Reset ccache stats
@@ -140,14 +144,16 @@ jobs:
           path: |
             naiveproxy/src/third_party/llvm-build/
             naiveproxy/src/gn/
-          key: toolchain-windows-${{ matrix.arch }}-${{ hashFiles('naiveproxy/CHROMIUM_VERSION') }}-v${{ env.CACHE_EPOCH }}
-          restore-keys: toolchain-windows-${{ matrix.arch }}-
+          key: v${{ env.CACHE_EPOCH }}-toolchain-windows-${{ matrix.arch }}-${{ hashFiles('naiveproxy/CHROMIUM_VERSION') }}
+          restore-keys: |
+            v${{ env.CACHE_EPOCH }}-toolchain-windows-${{ matrix.arch }}-
       - name: Cache sccache
         uses: actions/cache@v4
         with:
           path: ~/AppData/Local/Mozilla/sccache
-          key: sccache-windows-${{ matrix.arch }}-week${{ steps.week.outputs.week }}-v${{ env.CACHE_EPOCH }}
-          restore-keys: sccache-windows-${{ matrix.arch }}-
+          key: v${{ env.CACHE_EPOCH }}-sccache-windows-${{ matrix.arch }}-${{ steps.week.outputs.week }}
+          restore-keys: |
+            v${{ env.CACHE_EPOCH }}-sccache-windows-${{ matrix.arch }}-
       - name: Install ninja and sccache
         run: choco install ninja sccache
       - name: Reset sccache stats
@@ -186,14 +192,16 @@ jobs:
             naiveproxy/src/third_party/llvm-build/
             naiveproxy/src/gn/
             naiveproxy/src/third_party/android_toolchain/
-          key: toolchain-android-${{ matrix.arch }}-${{ hashFiles('naiveproxy/CHROMIUM_VERSION') }}-v${{ env.CACHE_EPOCH }}
-          restore-keys: toolchain-android-${{ matrix.arch }}-
+          key: v${{ env.CACHE_EPOCH }}-toolchain-android-${{ matrix.arch }}-${{ hashFiles('naiveproxy/CHROMIUM_VERSION') }}
+          restore-keys: |
+            v${{ env.CACHE_EPOCH }}-toolchain-android-${{ matrix.arch }}-
       - name: Cache ccache
         uses: actions/cache@v4
         with:
           path: ~/.cache/ccache
-          key: ccache-android-${{ matrix.arch }}-week${{ steps.week.outputs.week }}-v${{ env.CACHE_EPOCH }}
-          restore-keys: ccache-android-${{ matrix.arch }}-
+          key: v${{ env.CACHE_EPOCH }}-ccache-android-${{ matrix.arch }}-${{ steps.week.outputs.week }}
+          restore-keys: |
+            v${{ env.CACHE_EPOCH }}-ccache-android-${{ matrix.arch }}-
       - name: Install packages
         run: sudo apt update && sudo apt install -y ninja-build ccache
       - name: Reset ccache stats
