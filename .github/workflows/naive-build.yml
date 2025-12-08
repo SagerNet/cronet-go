@@ -15,6 +15,9 @@ concurrency:
 
 env:
   CACHE_EPOCH: 1
+  CCACHE_SLOPPINESS: time_macros
+  CCACHE_BASEDIR: ${{ github.workspace }}/naiveproxy/src
+  CCACHE_CPP2: yes
 
 jobs:
   linux:
@@ -30,6 +33,9 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: ^1.22
+      - name: Get cache week
+        id: week
+        run: echo "week=$(date +%Y-%W)" >> $GITHUB_OUTPUT
       - name: Cache toolchains
         uses: actions/cache@v4
         with:
@@ -37,11 +43,22 @@ jobs:
             naiveproxy/src/third_party/llvm-build/
             naiveproxy/src/gn/
             naiveproxy/src/out/sysroot-build/
-          key: linux-${{ matrix.arch }}-${{ hashFiles('naiveproxy/CHROMIUM_VERSION') }}-v${{ env.CACHE_EPOCH }}
+          key: toolchain-linux-${{ matrix.arch }}-${{ hashFiles('naiveproxy/CHROMIUM_VERSION') }}-v${{ env.CACHE_EPOCH }}
+          restore-keys: toolchain-linux-${{ matrix.arch }}-
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-linux-${{ matrix.arch }}-week${{ steps.week.outputs.week }}-v${{ env.CACHE_EPOCH }}
+          restore-keys: ccache-linux-${{ matrix.arch }}-
       - name: Install packages
-        run: sudo apt update && sudo apt install -y ninja-build
+        run: sudo apt update && sudo apt install -y ninja-build ccache
+      - name: Reset ccache stats
+        run: ccache -z
       - name: Build
         run: go run ./cmd/build-naive --targets=linux/${{ matrix.arch }} build
+      - name: Show ccache stats
+        run: ccache -sv
       - name: Package
         run: go run ./cmd/build-naive --targets=linux/${{ matrix.arch }} package
       - uses: actions/upload-artifact@v4
@@ -68,17 +85,31 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: ^1.22
+      - name: Get cache week
+        id: week
+        run: echo "week=$(date +%Y-%W)" >> $GITHUB_OUTPUT
       - name: Cache toolchains
         uses: actions/cache@v4
         with:
           path: |
             naiveproxy/src/third_party/llvm-build/
             naiveproxy/src/gn/
-          key: darwin-${{ hashFiles('naiveproxy/CHROMIUM_VERSION') }}-v${{ env.CACHE_EPOCH }}
-      - name: Install ninja
-        run: brew install ninja
+          key: toolchain-${{ matrix.name }}-${{ hashFiles('naiveproxy/CHROMIUM_VERSION') }}-v${{ env.CACHE_EPOCH }}
+          restore-keys: toolchain-${{ matrix.name }}-
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/ccache
+          key: ccache-darwin-${{ matrix.name }}-week${{ steps.week.outputs.week }}-v${{ env.CACHE_EPOCH }}
+          restore-keys: ccache-darwin-${{ matrix.name }}-
+      - name: Install ninja and ccache
+        run: brew install ninja ccache
+      - name: Reset ccache stats
+        run: ccache -z
       - name: Build
         run: go run ./cmd/build-naive --targets=${{ matrix.target }} build
+      - name: Show ccache stats
+        run: ccache -s
       - name: Package
         run: go run ./cmd/build-naive --targets=${{ matrix.target }} package
       - uses: actions/upload-artifact@v4
@@ -99,17 +130,32 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: ^1.22
+      - name: Get cache week
+        id: week
+        shell: bash
+        run: echo "week=$(date +%Y-%W)" >> $GITHUB_OUTPUT
       - name: Cache toolchains
         uses: actions/cache@v4
         with:
           path: |
             naiveproxy/src/third_party/llvm-build/
             naiveproxy/src/gn/
-          key: windows-${{ matrix.arch }}-${{ hashFiles('naiveproxy/CHROMIUM_VERSION') }}-v${{ env.CACHE_EPOCH }}
-      - name: Install ninja
-        run: choco install ninja
+          key: toolchain-windows-${{ matrix.arch }}-${{ hashFiles('naiveproxy/CHROMIUM_VERSION') }}-v${{ env.CACHE_EPOCH }}
+          restore-keys: toolchain-windows-${{ matrix.arch }}-
+      - name: Cache sccache
+        uses: actions/cache@v4
+        with:
+          path: ~/AppData/Local/Mozilla/sccache
+          key: sccache-windows-${{ matrix.arch }}-week${{ steps.week.outputs.week }}-v${{ env.CACHE_EPOCH }}
+          restore-keys: sccache-windows-${{ matrix.arch }}-
+      - name: Install ninja and sccache
+        run: choco install ninja sccache
+      - name: Reset sccache stats
+        run: sccache -z
       - name: Build
         run: go run ./cmd/build-naive --targets=windows/${{ matrix.arch }} build
+      - name: Show sccache stats
+        run: sccache -s
       - name: Package
         run: go run ./cmd/build-naive --targets=windows/${{ matrix.arch }} package
       - uses: actions/upload-artifact@v4
@@ -130,6 +176,9 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: ^1.22
+      - name: Get cache week
+        id: week
+        run: echo "week=$(date +%Y-%W)" >> $GITHUB_OUTPUT
       - name: Cache toolchains
         uses: actions/cache@v4
         with:
@@ -137,11 +186,22 @@ jobs:
             naiveproxy/src/third_party/llvm-build/
             naiveproxy/src/gn/
             naiveproxy/src/third_party/android_toolchain/
-          key: android-${{ matrix.arch }}-${{ hashFiles('naiveproxy/CHROMIUM_VERSION') }}-v${{ env.CACHE_EPOCH }}
+          key: toolchain-android-${{ matrix.arch }}-${{ hashFiles('naiveproxy/CHROMIUM_VERSION') }}-v${{ env.CACHE_EPOCH }}
+          restore-keys: toolchain-android-${{ matrix.arch }}-
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-android-${{ matrix.arch }}-week${{ steps.week.outputs.week }}-v${{ env.CACHE_EPOCH }}
+          restore-keys: ccache-android-${{ matrix.arch }}-
       - name: Install packages
-        run: sudo apt update && sudo apt install -y ninja-build
+        run: sudo apt update && sudo apt install -y ninja-build ccache
+      - name: Reset ccache stats
+        run: ccache -z
       - name: Build
         run: go run ./cmd/build-naive --targets=android/${{ matrix.arch }} build
+      - name: Show ccache stats
+        run: ccache -s
       - name: Package
         run: go run ./cmd/build-naive --targets=android/${{ matrix.arch }} package
       - uses: actions/upload-artifact@v4

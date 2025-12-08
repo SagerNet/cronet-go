@@ -164,6 +164,19 @@ func buildTarget(t Target) {
 		)
 	}
 
+	// Detect and use ccache/sccache
+	if runtime.GOOS == "windows" {
+		sccachePath, _ := exec.LookPath("sccache")
+		if sccachePath != "" {
+			args = append(args, fmt.Sprintf(`cc_wrapper="%s"`, sccachePath))
+		}
+	} else {
+		ccachePath, _ := exec.LookPath("ccache")
+		if ccachePath != "" {
+			args = append(args, fmt.Sprintf(`cc_wrapper="%s"`, ccachePath))
+		}
+	}
+
 	gnArgs := strings.Join(args, " ")
 
 	// Determine GN path

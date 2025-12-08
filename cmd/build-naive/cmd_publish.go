@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -34,26 +35,13 @@ func publish() {
 	}
 	defer os.RemoveAll(temporaryDirectory)
 
-	// Create worktree based on current HEAD
+	// Create worktree based on current HEAD (keep all files)
 	runCommand(projectRoot, "git", "worktree", "add", temporaryDirectory, "HEAD")
-	runCommand(temporaryDirectory, "git", "rm", "-rf", ".")
 
-	// Files to copy
-	filesToCopy := []string{
-		"*.go",
-		"go.mod",
-		"go.sum",
-		"include",
-		"lib",
-		"naive",
-		"LICENSE",
-		"README.md",
-	}
-
-	// Copy files
-	for _, pattern := range filesToCopy {
-		copyGlob(projectRoot, temporaryDirectory, pattern)
-	}
+	// Copy lib, include directories and cgo_*.go files
+	copyDirectory(filepath.Join(projectRoot, "lib"), filepath.Join(temporaryDirectory, "lib"))
+	copyDirectory(filepath.Join(projectRoot, "include"), filepath.Join(temporaryDirectory, "include"))
+	copyGlob(projectRoot, temporaryDirectory, "cgo_*.go")
 
 	// Stage and commit (force add to include .gitignore'd files)
 	runCommand(temporaryDirectory, "git", "add", "-f", "-A")
