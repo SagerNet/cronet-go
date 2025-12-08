@@ -10,6 +10,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var publishBranch string
+
 var commandPublish = &cobra.Command{
 	Use:   "publish",
 	Short: "Commit to go branch and push",
@@ -19,11 +21,12 @@ var commandPublish = &cobra.Command{
 }
 
 func init() {
+	commandPublish.Flags().StringVar(&publishBranch, "branch", "go", "Target branch to publish to")
 	mainCommand.AddCommand(commandPublish)
 }
 
 func publish() {
-	log.Print("Publishing to go branch...")
+	log.Printf("Publishing to %s branch...", publishBranch)
 
 	// Get current commit
 	mainCommit := strings.TrimSpace(runCommandOutput(projectRoot, "git", "rev-parse", "HEAD"))
@@ -48,11 +51,11 @@ func publish() {
 	commitMessage := fmt.Sprintf("Build from %s", mainCommit[:8])
 	runCommand(temporaryDirectory, "git", "commit", "-m", commitMessage)
 
-	// Force push to go branch
-	runCommand(temporaryDirectory, "git", "push", "-f", "origin", "HEAD:go")
+	// Force push to target branch
+	runCommand(temporaryDirectory, "git", "push", "-f", "origin", "HEAD:"+publishBranch)
 
 	// Cleanup worktree
 	runCommand(projectRoot, "git", "worktree", "remove", "--force", temporaryDirectory)
 
-	log.Print("Published to go branch!")
+	log.Printf("Published to %s branch!", publishBranch)
 }
