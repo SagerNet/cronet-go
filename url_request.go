@@ -67,8 +67,9 @@ func (r URLRequest) FollowRedirect() Result {
 // not access it until one of these callbacks is invoked.
 //
 // @param buffer to write response body to. The app must not read or
-//        modify buffer's position, limit, or data between its position and
-//        limit until the request calls back into the URLRequestCallbackHandler.
+//
+//	modify buffer's position, limit, or data between its position and
+//	limit until the request calls back into the URLRequestCallbackHandler.
 func (r URLRequest) Read(buffer Buffer) Result {
 	return Result(C.Cronet_UrlRequest_Read(r.ptr, buffer.ptr))
 }
@@ -98,9 +99,10 @@ func (r URLRequest) IsDone() bool {
 // GetStatus
 // Queries the status of the request.
 // @param listener a URLRequestStatusListener that will be invoked with
-//         the request's current status. Listener will be invoked
-//         back on the Executor passed in when the request was
-//         created.
+//
+//	the request's current status. Listener will be invoked
+//	back on the Executor passed in when the request was
+//	created.
 func (r URLRequest) GetStatus(listener URLRequestStatusListener) {
 	C.Cronet_UrlRequest_GetStatus(r.ptr, listener.ptr)
 }

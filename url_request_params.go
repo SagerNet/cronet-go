@@ -188,7 +188,7 @@ func (p URLRequestParams) RequestFinishedListener() URLRequestFinishedInfoListen
 //
 // Ownership is **not** taken.
 //
-// Similar to RequestFinishedListener, the app may destroy RequestFinishedExecutor in or after URLRequestFinishedInfoListenerOnRequestFinishedFunc
+// # Similar to RequestFinishedListener, the app may destroy RequestFinishedExecutor in or after URLRequestFinishedInfoListenerOnRequestFinishedFunc
 //
 // It's also OK to destroy RequestFinishedExecutor in or after one
 // of {@link URLRequestCallbackHandler.OnCanceled()}, {@link

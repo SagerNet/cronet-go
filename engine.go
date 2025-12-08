@@ -36,13 +36,16 @@ func (e Engine) StartWithParams(params EngineParams) Result {
 // chrome://net-internals/#import
 // Returns |true| if netlog has started successfully, |false| otherwise.
 // @param fileName the complete file path. It must not be empty. If the file
-//   exists, it is truncated before starting. If actively logging,
-//   this method is ignored.
+//
+//	exists, it is truncated before starting. If actively logging,
+//	this method is ignored.
+//
 // @param logAll to include basic events, user cookies,
-//   credentials and all transferred bytes in the log. This option presents
-//   a privacy risk, since it exposes the user's credentials, and should
-//   only be used with the user's consent and in situations where the log
-//   won't be public. false to just include basic events.
+//
+//	credentials and all transferred bytes in the log. This option presents
+//	a privacy risk, since it exposes the user's credentials, and should
+//	only be used with the user's consent and in situations where the log
+//	won't be public. false to just include basic events.
 func (e Engine) StartNetLogToFile(fileName string, logAll bool) bool {
 	cPath := C.CString(fileName)
 	result := C.Cronet_Engine_StartNetLogToFile(e.ptr, cPath, C.bool(logAll))

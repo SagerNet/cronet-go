@@ -1,0 +1,181 @@
+name: Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'naiveproxy'
+      - 'cmd/build-naive'
+      - '.github/workflows/naive-build.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+env:
+  CACHE_EPOCH: 1
+
+jobs:
+  linux:
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ^1.22
+      - name: Cache toolchains
+        uses: actions/cache@v4
+        with:
+          path: |
+            naiveproxy/src/third_party/llvm-build/
+            naiveproxy/src/gn/
+            naiveproxy/src/out/sysroot-build/
+          key: linux-${{ matrix.arch }}-${{ hashFiles('naiveproxy/CHROMIUM_VERSION') }}-v${{ env.CACHE_EPOCH }}
+      - name: Install packages
+        run: sudo apt update && sudo apt install -y ninja-build
+      - name: Build
+        run: go run ./cmd/build-naive --targets=linux/${{ matrix.arch }} build
+      - name: Package
+        run: go run ./cmd/build-naive --targets=linux/${{ matrix.arch }} package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cronet-linux-${{ matrix.arch }}
+          path: lib/
+
+  darwin:
+    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: darwin/amd64
+            name: darwin-amd64
+          - target: darwin/arm64
+            name: darwin-arm64
+          - target: ios/arm64
+            name: ios-arm64
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ^1.22
+      - name: Cache toolchains
+        uses: actions/cache@v4
+        with:
+          path: |
+            naiveproxy/src/third_party/llvm-build/
+            naiveproxy/src/gn/
+          key: darwin-${{ hashFiles('naiveproxy/CHROMIUM_VERSION') }}-v${{ env.CACHE_EPOCH }}
+      - name: Install ninja
+        run: brew install ninja
+      - name: Build
+        run: go run ./cmd/build-naive --targets=${{ matrix.target }} build
+      - name: Package
+        run: go run ./cmd/build-naive --targets=${{ matrix.target }} package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cronet-${{ matrix.name }}
+          path: lib/
+
+  windows:
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ^1.22
+      - name: Cache toolchains
+        uses: actions/cache@v4
+        with:
+          path: |
+            naiveproxy/src/third_party/llvm-build/
+            naiveproxy/src/gn/
+          key: windows-${{ matrix.arch }}-${{ hashFiles('naiveproxy/CHROMIUM_VERSION') }}-v${{ env.CACHE_EPOCH }}
+      - name: Install ninja
+        run: choco install ninja
+      - name: Build
+        run: go run ./cmd/build-naive --targets=windows/${{ matrix.arch }} build
+      - name: Package
+        run: go run ./cmd/build-naive --targets=windows/${{ matrix.arch }} package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cronet-windows-${{ matrix.arch }}
+          path: lib/
+
+  android:
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, amd64, arm, "386"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ^1.22
+      - name: Cache toolchains
+        uses: actions/cache@v4
+        with:
+          path: |
+            naiveproxy/src/third_party/llvm-build/
+            naiveproxy/src/gn/
+            naiveproxy/src/third_party/android_toolchain/
+          key: android-${{ matrix.arch }}-${{ hashFiles('naiveproxy/CHROMIUM_VERSION') }}-v${{ env.CACHE_EPOCH }}
+      - name: Install packages
+        run: sudo apt update && sudo apt install -y ninja-build
+      - name: Build
+        run: go run ./cmd/build-naive --targets=android/${{ matrix.arch }} build
+      - name: Package
+        run: go run ./cmd/build-naive --targets=android/${{ matrix.arch }} package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cronet-android-${{ matrix.arch }}
+          path: lib/
+
+  publish:
+    needs: [linux, darwin, windows, android]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ^1.22
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Merge artifacts
+        run: |
+          mkdir -p lib
+          for dir in artifacts/cronet-*/; do
+            cp -r "$dir"/* lib/
+          done
+          ls -laR lib/
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Publish to go branch
+        run: go run ./cmd/build-naive publish

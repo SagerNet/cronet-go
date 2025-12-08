@@ -1,0 +1,193 @@
+package main
+
+import (
+	"fmt"
+	"log"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+
+	"github.com/spf13/cobra"
+)
+
+var commandBuild = &cobra.Command{
+	Use:   "build",
+	Short: "Build cronet_static for specified targets",
+	Run: func(cmd *cobra.Command, args []string) {
+		targets := parseTargets()
+		build(targets)
+	},
+}
+
+func init() {
+	mainCommand.AddCommand(commandBuild)
+}
+
+func build(targets []Target) {
+	log.Printf("Building cronet_static for %d target(s)", len(targets))
+
+	for _, t := range targets {
+		log.Printf("Building %s/%s...", t.GOOS, t.ARCH)
+		buildTarget(t)
+	}
+
+	log.Print("Build complete!")
+}
+
+// getExtraFlags returns the EXTRA_FLAGS for a target
+func getExtraFlags(t Target) string {
+	flags := []string{
+		fmt.Sprintf(`target_os="%s"`, t.OS),
+		fmt.Sprintf(`target_cpu="%s"`, t.CPU),
+	}
+	return strings.Join(flags, " ")
+}
+
+// runGetClang runs naiveproxy's get-clang.sh with appropriate EXTRA_FLAGS
+func runGetClang(t Target) {
+	// For cross-compilation on Linux, we need to also build host sysroot first
+	// because GN needs host sysroot in addition to target sysroot
+	hostOS := runtime.GOOS
+	hostCPU := hostToCPU(runtime.GOARCH)
+	if hostOS == "linux" && (t.OS == "linux" || t.OS == "android") && t.CPU != hostCPU {
+		// Run get-clang.sh with host target to ensure host sysroot is downloaded
+		hostFlags := fmt.Sprintf(`target_os="linux" target_cpu="%s"`, hostCPU)
+		log.Printf("Running get-clang.sh for host sysroot with EXTRA_FLAGS=%s", hostFlags)
+		command := exec.Command("bash", "./get-clang.sh")
+		command.Dir = srcRoot
+		command.Env = append(os.Environ(), "EXTRA_FLAGS="+hostFlags)
+		command.Stdout = os.Stdout
+		command.Stderr = os.Stderr
+		err := command.Run()
+		if err != nil {
+			log.Fatalf("get-clang.sh (host) failed: %v", err)
+		}
+
+		// Create symlink for host sysroot so GN can find it at the default location
+		hostSysrootSource := filepath.Join(srcRoot, "out/sysroot-build/bullseye/bullseye_amd64_staging")
+		hostSysrootDestination := filepath.Join(srcRoot, "build/linux/debian_bullseye_amd64-sysroot")
+		if _, err := os.Stat(hostSysrootDestination); os.IsNotExist(err) {
+			log.Printf("Creating symlink for host sysroot: %s -> %s", hostSysrootDestination, hostSysrootSource)
+			err := os.Symlink(hostSysrootSource, hostSysrootDestination)
+			if err != nil {
+				log.Fatalf("failed to create host sysroot symlink: %v", err)
+			}
+		}
+	}
+
+	extraFlags := getExtraFlags(t)
+	log.Printf("Running get-clang.sh with EXTRA_FLAGS=%s", extraFlags)
+
+	command := exec.Command("bash", "./get-clang.sh")
+	command.Dir = srcRoot
+	command.Env = append(os.Environ(), "EXTRA_FLAGS="+extraFlags)
+	command.Stdout = os.Stdout
+	command.Stderr = os.Stderr
+	err := command.Run()
+	if err != nil {
+		log.Fatalf("get-clang.sh failed: %v", err)
+	}
+}
+
+func buildTarget(t Target) {
+	// Run get-clang.sh to ensure toolchain is available
+	runGetClang(t)
+
+	outputDirectory := fmt.Sprintf("out/cronet-%s-%s", t.OS, t.CPU)
+
+	// Prepare GN args
+	args := []string{
+		"is_official_build=true",
+		"is_debug=false",
+		"is_clang=true",
+		"use_thin_lto=false", // Disable ThinLTO so static lib can be linked with system clang
+		"fatal_linker_warnings=false",
+		"treat_warnings_as_errors=false",
+		"is_cronet_build=true",
+		"use_udev=false",
+		"use_aura=false",
+		"use_ozone=false",
+		"use_gio=false",
+		"use_platform_icu_alternatives=true",
+		"use_glib=false",
+		"disable_file_support=true",
+		"enable_websockets=false",
+		"use_kerberos=false",
+		"disable_zstd_filter=false",
+		"enable_mdns=false",
+		"enable_reporting=false",
+		"include_transport_security_state_preload_list=false",
+		"enable_device_bound_sessions=false",
+		"enable_bracketed_proxy_uris=true",
+		"enable_quic_proxy_support=true",
+		"enable_disk_cache_sql_backend=false",
+		"use_nss_certs=false",
+		"enable_backup_ref_ptr_support=false",
+		"enable_dangling_raw_ptr_checks=false",
+		"exclude_unwind_tables=true",
+		"enable_resource_allowlist_generation=false",
+		"symbol_level=0",
+		"enable_dsyms=false",
+		fmt.Sprintf("target_os=\"%s\"", t.OS),
+		fmt.Sprintf("target_cpu=\"%s\"", t.CPU),
+	}
+
+	// Platform-specific args
+	switch t.OS {
+	case "mac":
+		args = append(args, "use_sysroot=false")
+	case "linux":
+		// Sysroot is handled by get-clang.sh, use the naiveproxy path
+		sysrootArch := map[string]string{"x64": "amd64", "arm64": "arm64"}[t.CPU]
+		sysrootDirectory := fmt.Sprintf("out/sysroot-build/bullseye/bullseye_%s_staging", sysrootArch)
+		args = append(args, "use_sysroot=true", fmt.Sprintf("target_sysroot=\"//%s\"", sysrootDirectory))
+		if t.CPU == "x64" {
+			args = append(args, "use_cfi_icall=false", "is_cfi=false")
+		}
+	case "win":
+		args = append(args, "use_sysroot=false")
+	case "android":
+		args = append(args,
+			"use_sysroot=false",
+			"default_min_sdk_version=24",
+			"is_high_end_android=true",
+			"android_ndk_major_version=28",
+		)
+	case "ios":
+		args = append(args,
+			"use_sysroot=false",
+			"ios_enable_code_signing=false",
+			"enable_ios_bitcode=false",
+			`target_environment="device"`,
+		)
+	}
+
+	gnArgs := strings.Join(args, " ")
+
+	// Determine GN path
+	gnPath := filepath.Join(srcRoot, "gn", "out", "gn")
+	if runtime.GOOS == "windows" {
+		gnPath += ".exe"
+	}
+
+	// Run gn gen
+	log.Printf("Running: gn gen %s", outputDirectory)
+	gnCommand := exec.Command(gnPath, "gen", outputDirectory, "--args="+gnArgs)
+	gnCommand.Dir = srcRoot
+	gnCommand.Stdout = os.Stdout
+	gnCommand.Stderr = os.Stderr
+	// On Windows, use system Visual Studio instead of depot_tools
+	if runtime.GOOS == "windows" {
+		gnCommand.Env = append(os.Environ(), "DEPOT_TOOLS_WIN_TOOLCHAIN=0")
+	}
+	err := gnCommand.Run()
+	if err != nil {
+		log.Fatalf("gn gen failed: %v", err)
+	}
+
+	// Run ninja
+	log.Printf("Running: ninja -C %s cronet_static", outputDirectory)
+	runCommand(srcRoot, "ninja", "-C", outputDirectory, "cronet_static")
+}

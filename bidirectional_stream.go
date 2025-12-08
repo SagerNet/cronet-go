@@ -141,7 +141,7 @@ func (c BidirectionalStream) DelayRequestHeadersUntilFlush(delay bool) {
 // Start starts the stream by sending request to |url| using |method| and |headers|.
 // If |endOfStream| is true, then no data is expected to be written. The
 // |method| is HTTP verb.
-//noinspection GoDeferInLoop
+// noinspection GoDeferInLoop
 func (c BidirectionalStream) Start(method string, url string, headers map[string]string, priority int, endOfStream bool) bool {
 	var headerArray C.bidirectional_stream_header_array
 	headerLen := len(headers)

@@ -32,26 +32,30 @@ func (l URLRequestFinishedInfoListener) ClientContext() unsafe.Pointer {
 // happen after a URLRequestCallbackHandler method is called.
 //
 // @param request_info RequestFinishedInfo for finished request.
-//     Ownership is *not* transferred by this call, do not destroy
-//     request_info.
 //
-//     URLRequest
-//     that created it hasn't been destroyed -- **additionally**, it will
-//     also always be valid for the duration of URLRequestFinishedInfoListenerOnRequestFinishedFunc(),
-//     even if the URLRequest has been destroyed.
+//	Ownership is *not* transferred by this call, do not destroy
+//	request_info.
 //
-//     This is accomplished by ownership being shared between the
-//     URLRequest and the code that calls this listener.
+//	URLRequest
+//	that created it hasn't been destroyed -- **additionally**, it will
+//	also always be valid for the duration of URLRequestFinishedInfoListenerOnRequestFinishedFunc(),
+//	even if the URLRequest has been destroyed.
+//
+//	This is accomplished by ownership being shared between the
+//	URLRequest and the code that calls this listener.
 //
 // @param responseInfo A pointer to the same UrlResponseInfo passed to
-//     URLRequestCallbackHandler.OnCanceled(), {@link
-//     URLRequestCallbackHandler.OnFailed()} or {@link
-//     URLRequestCallbackHandler.OnSucceeded()}. The lifetime and ownership of
-//     requestInfo.
+//
+//	URLRequestCallbackHandler.OnCanceled(), {@link
+//	URLRequestCallbackHandler.OnFailed()} or {@link
+//	URLRequestCallbackHandler.OnSucceeded()}. The lifetime and ownership of
+//	requestInfo.
 //
 // @param error A pointer to the same Error passed to
-//     URLRequestCallbackHandler.OnFailed(), or null if there was no error.
-//     The lifetime and ownership of error works the same as for
-//     requestInfo.
-///
+//
+//	URLRequestCallbackHandler.OnFailed(), or null if there was no error.
+//	The lifetime and ownership of error works the same as for
+//	requestInfo.
+//
+// /
 type URLRequestFinishedInfoListenerOnRequestFinishedFunc func(listener URLRequestFinishedInfoListener, requestInfo URLRequestFinishedInfo, responseInfo URLResponseInfo, error Error)

@@ -20,7 +20,8 @@ type UploadDataSink struct {
 //
 // @param bytesRead number of bytes read into buffer passed to UploadDataProviderHandler.Read().
 // @param finalChunk For chunked uploads, |true| if this is the final
-//     read. It must be |false| for non-chunked uploads.
+//
+//	read. It must be |false| for non-chunked uploads.
 func (s UploadDataSink) OnReadSucceeded(bytesRead int64, finalChunk bool) {
 	C.Cronet_UploadDataSink_OnReadSucceeded(s.ptr, C.uint64_t(bytesRead), C.bool(finalChunk))
 }

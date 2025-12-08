@@ -1,10 +1,35 @@
 # cronet-go
 
-Cronet is the Chromium network stack made available to Android apps as a library. Cronet takes advantage of multiple
-technologies that reduce the latency and increase the throughput of the network requests that your app needs to work.
+Go bindings for [naiveproxy](https://github.com/klzgrad/naiveproxy).
 
-The Cronet Library handles the requests of apps used by millions of people on a daily basis, such as YouTube, Google
-App, Google Photos, and Maps - Navigation & Transit.
+## Build
 
-This experimental project ported Cronet to golang with NaiveProxy support. To learn how to use the Cronet Library in
-your app, see the [transport](./transport_test.go) and [naive-go](./naive/main.go) example.
+```bash
+git submodule update --init --recursive
+go run ./cmd/build-naive build
+go run ./cmd/build-naive package
+```
+
+Cross-compile: `go run ./cmd/build-naive --targets=linux/amd64 build`
+
+## Example
+
+```bash
+go test -v -run TestTransport
+```
+
+## Supported Platforms
+
+| Target | OS | CPU |
+|--------|-----|-----|
+| android/386 | android | x86 |
+| android/amd64 | android | x64 |
+| android/arm | android | arm |
+| android/arm64 | android | arm64 |
+| darwin/amd64 | mac | x64 |
+| darwin/arm64 | mac | arm64 |
+| ios/arm64 | ios | arm64 |
+| linux/amd64 | linux | x64 |
+| linux/arm64 | linux | arm64 |
+| windows/amd64 | win | x64 |
+| windows/arm64 | win | arm64 |
