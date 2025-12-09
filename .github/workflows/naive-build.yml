@@ -39,7 +39,7 @@ jobs:
             lib/
             include/
             include.go
-          key: naive-${{ steps.naive.outputs.commit }}-${{ hashFiles('cmd/build-naive/cmd_build.go') }}-linux-${{ matrix.arch }}
+          key: naive-${{ steps.naive.outputs.commit }}-${{ hashFiles('cmd/build-naive/*.go') }}-linux-${{ matrix.arch }}
       - id: ccache-timestamp
         if: steps.cache.outputs.cache-hit != 'true'
         run: echo "CCACHE_TIMESTAMP=$(date +%s)" >>$GITHUB_OUTPUT
@@ -103,7 +103,7 @@ jobs:
             lib/
             include/
             include.go
-          key: naive-${{ steps.naive.outputs.commit }}-${{ hashFiles('cmd/build-naive/cmd_build.go') }}-${{ matrix.name }}
+          key: naive-${{ steps.naive.outputs.commit }}-${{ hashFiles('cmd/build-naive/*.go') }}-${{ matrix.name }}
       - id: ccache-timestamp
         if: steps.cache.outputs.cache-hit != 'true'
         run: echo "CCACHE_TIMESTAMP=$(date +%s)" >>$GITHUB_OUTPUT
@@ -162,7 +162,7 @@ jobs:
             lib/
             include/
             include.go
-          key: naive-${{ steps.naive.outputs.commit }}-${{ hashFiles('cmd/build-naive/cmd_build.go') }}-windows-${{ matrix.arch }}-v2
+          key: naive-${{ steps.naive.outputs.commit }}-${{ hashFiles('cmd/build-naive/*.go') }}-windows-${{ matrix.arch }}-v2
       - id: ccache-timestamp
         if: steps.cache.outputs.cache-hit != 'true'
         shell: bash
@@ -222,7 +222,7 @@ jobs:
             lib/
             include/
             include.go
-          key: naive-${{ steps.naive.outputs.commit }}-${{ hashFiles('cmd/build-naive/cmd_build.go') }}-android-${{ matrix.arch }}
+          key: naive-${{ steps.naive.outputs.commit }}-${{ hashFiles('cmd/build-naive/*.go') }}-android-${{ matrix.arch }}
       - id: ccache-timestamp
         if: steps.cache.outputs.cache-hit != 'true'
         run: echo "CCACHE_TIMESTAMP=$(date +%s)" >>$GITHUB_OUTPUT
@@ -296,7 +296,7 @@ jobs:
             lib/
             include/
             include.go
-          key: naive-${{ steps.naive.outputs.commit }}-${{ hashFiles('cmd/build-naive/cmd_build.go') }}-linux-musl-${{ matrix.arch }}
+          key: naive-${{ steps.naive.outputs.commit }}-${{ hashFiles('cmd/build-naive/*.go') }}-linux-musl-${{ matrix.arch }}
       - id: ccache-timestamp
         if: steps.cache.outputs.cache-hit != 'true'
         run: echo "CCACHE_TIMESTAMP=$(date +%s)" >>$GITHUB_OUTPUT

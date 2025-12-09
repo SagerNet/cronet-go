@@ -135,7 +135,13 @@ func extractLinkFlags(outputDirectory string) (LinkFlags, error) {
 		if matches := libsRegex.FindStringSubmatch(line); matches != nil {
 			libsStr := strings.TrimSpace(matches[1])
 			if libsStr != "" {
-				flags.Libs = strings.Fields(libsStr)
+				for _, lib := range strings.Fields(libsStr) {
+					// Filter out linker scripts (.lds) - they're not needed for
+					// static linking and Go's CGO rejects them as invalid flags
+					if !strings.HasSuffix(lib, ".lds") {
+						flags.Libs = append(flags.Libs, lib)
+					}
+				}
 			}
 		}
 
