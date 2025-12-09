@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -107,6 +109,64 @@ func getLibraryDirectoryName(t Target) string {
 	return fmt.Sprintf("%s_%s", t.GOOS, t.ARCH)
 }
 
+// LinkFlags contains linking parameters extracted from ninja build files
+type LinkFlags struct {
+	Libs       []string // System libraries (e.g., -ldl, -lpthread)
+	Frameworks []string // macOS/iOS frameworks (e.g., -framework Security)
+}
+
+// extractLinkFlags parses the ninja file for cronet_sample to extract linking parameters
+func extractLinkFlags(outputDirectory string) (LinkFlags, error) {
+	ninjaPath := filepath.Join(srcRoot, outputDirectory, "obj/components/cronet/cronet_sample.ninja")
+	file, err := os.Open(ninjaPath)
+	if err != nil {
+		return LinkFlags{}, fmt.Errorf("failed to open ninja file %s: %w", ninjaPath, err)
+	}
+	defer file.Close()
+
+	var flags LinkFlags
+	libsRegex := regexp.MustCompile(`^\s*libs\s*=\s*(.*)$`)
+	frameworksRegex := regexp.MustCompile(`^\s*frameworks\s*=\s*(.*)$`)
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		if matches := libsRegex.FindStringSubmatch(line); matches != nil {
+			libsStr := strings.TrimSpace(matches[1])
+			if libsStr != "" {
+				flags.Libs = strings.Fields(libsStr)
+			}
+		}
+
+		if matches := frameworksRegex.FindStringSubmatch(line); matches != nil {
+			frameworksStr := strings.TrimSpace(matches[1])
+			if frameworksStr != "" {
+				flags.Frameworks = parseFrameworks(frameworksStr)
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return LinkFlags{}, fmt.Errorf("failed to read ninja file: %w", err)
+	}
+
+	return flags, nil
+}
+
+// parseFrameworks parses "-framework Foo -framework Bar" into []string{"-framework Foo", "-framework Bar"}
+func parseFrameworks(input string) []string {
+	var result []string
+	parts := strings.Fields(input)
+	for i := 0; i < len(parts); i++ {
+		if parts[i] == "-framework" && i+1 < len(parts) {
+			result = append(result, "-framework "+parts[i+1])
+			i++
+		}
+	}
+	return result
+}
+
 func generateSubmodules(targets []Target) {
 	versionFile := filepath.Join(naiveRoot, "CHROMIUM_VERSION")
 	versionData, err := os.ReadFile(versionFile)
@@ -130,46 +190,16 @@ go 1.20
 			log.Fatalf("failed to write go.mod: %v", err)
 		}
 
-		// Platform-specific flags
-		var platformFlags []string
-		switch t.GOOS {
-		case "linux":
-			if t.Libc == "musl" {
-				platformFlags = []string{}
-			} else {
-				platformFlags = []string{"-ldl", "-lpthread", "-lm", "-lresolv"}
-			}
-		case "darwin":
-			platformFlags = []string{
-				"-framework Security",
-				"-framework CoreFoundation",
-				"-framework SystemConfiguration",
-				"-framework Network",
-				"-framework AppKit",
-				"-framework CFNetwork",
-				"-framework UniformTypeIdentifiers",
-			}
-		case "windows":
-			platformFlags = []string{
-				"-lws2_32",
-				"-lcrypt32",
-				"-lsecur32",
-				"-ladvapi32",
-				"-lwinhttp",
-			}
-		case "android":
-			platformFlags = []string{"-ldl", "-llog", "-landroid"}
-		case "ios":
-			platformFlags = []string{
-				"-framework Security",
-				"-framework CoreFoundation",
-				"-framework SystemConfiguration",
-				"-framework Network",
-				"-framework UIKit",
-			}
+		// Extract linking flags from ninja file
+		outputDirectory := fmt.Sprintf("out/cronet-%s-%s", t.OS, t.CPU)
+		linkFlags, err := extractLinkFlags(outputDirectory)
+		if err != nil {
+			log.Fatalf("failed to extract link flags for %s/%s: %v", t.GOOS, t.ARCH, err)
 		}
 
-		// Build tags and LDFLAGS
+		log.Printf("Extracted link flags for %s/%s: libs=%v frameworks=%v", t.GOOS, t.ARCH, linkFlags.Libs, linkFlags.Frameworks)
+
+		// Build tags
 		var buildTag string
 		if t.Libc == "musl" {
 			buildTag = fmt.Sprintf("%s && !android && %s && with_musl", t.GOOS, t.ARCH)
@@ -181,18 +211,28 @@ go 1.20
 			buildTag = fmt.Sprintf("%s && %s", t.GOOS, t.ARCH)
 		}
 
+		// Build LDFLAGS from extracted values
 		var ldFlags []string
-		if t.GOOS == "darwin" {
-			ldFlags = append([]string{"${SRCDIR}/libcronet.a", "-lc++", "-lbsm", "-framework IOKit"}, platformFlags...)
-		} else if t.GOOS == "ios" {
-			ldFlags = append([]string{"${SRCDIR}/libcronet.a", "-lc++"}, platformFlags...)
-		} else if t.GOOS == "windows" {
-			ldFlags = append([]string{"${SRCDIR}/cronet.lib"}, platformFlags...)
-		} else if t.Libc == "musl" {
-			ldFlags = append([]string{"-L${SRCDIR}", "-l:libcronet.a"}, platformFlags...)
+
+		// Add static library reference
+		if t.GOOS == "windows" {
+			ldFlags = append(ldFlags, "${SRCDIR}/cronet.lib")
+		} else if t.GOOS == "darwin" || t.GOOS == "ios" {
+			ldFlags = append(ldFlags, "${SRCDIR}/libcronet.a")
 		} else {
-			ldFlags = append([]string{"-L${SRCDIR}", "-l:libcronet.a"}, platformFlags...)
+			ldFlags = append(ldFlags, "-L${SRCDIR}", "-l:libcronet.a")
 		}
+
+		// Add libc++ for C++ runtime on Darwin platforms
+		if t.GOOS == "darwin" || t.GOOS == "ios" {
+			ldFlags = append(ldFlags, "-lc++")
+		}
+
+		// Add extracted libs
+		ldFlags = append(ldFlags, linkFlags.Libs...)
+
+		// Add extracted frameworks
+		ldFlags = append(ldFlags, linkFlags.Frameworks...)
 
 		// Generate cgo.go (only LDFLAGS, CFLAGS is in main module)
 		packageName := strings.ReplaceAll(directoryName, "-", "_")
