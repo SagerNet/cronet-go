@@ -29,7 +29,11 @@ func build(targets []Target) {
 	log.Printf("Building cronet_static for %d target(s)", len(targets))
 
 	for _, t := range targets {
-		log.Printf("Building %s/%s...", t.GOOS, t.ARCH)
+		if t.Libc == "musl" {
+			log.Printf("Building %s/%s (musl)...", t.GOOS, t.ARCH)
+		} else {
+			log.Printf("Building %s/%s...", t.GOOS, t.ARCH)
+		}
 		buildTarget(t)
 	}
 
@@ -45,13 +49,76 @@ func getExtraFlags(t Target) string {
 	return strings.Join(flags, " ")
 }
 
+// OpenWrt SDK configuration for each architecture
+type openwrtConfig struct {
+	target    string // OpenWrt target (e.g., "x86", "armsr")
+	subtarget string // OpenWrt subtarget (e.g., "64", "generic")
+	arch      string // OpenWrt arch (e.g., "x86_64", "aarch64")
+	release   string // OpenWrt release version
+	gccVer    string // GCC version in SDK
+}
+
+// getOpenwrtConfig returns the OpenWrt SDK configuration for a target
+func getOpenwrtConfig(t Target) openwrtConfig {
+	// Use OpenWrt 23.05.5 as it's stable and widely available
+	// GCC version varies by release
+	switch t.CPU {
+	case "x64":
+		return openwrtConfig{
+			target:    "x86",
+			subtarget: "64",
+			arch:      "x86_64",
+			release:   "23.05.5",
+			gccVer:    "12.3.0",
+		}
+	case "arm64":
+		return openwrtConfig{
+			target:    "armsr",
+			subtarget: "armv8",
+			arch:      "aarch64",
+			release:   "23.05.5",
+			gccVer:    "12.3.0",
+		}
+	case "x86":
+		return openwrtConfig{
+			target:    "x86",
+			subtarget: "generic",
+			arch:      "i386_pentium4",
+			release:   "23.05.5",
+			gccVer:    "12.3.0",
+		}
+	case "arm":
+		return openwrtConfig{
+			target:    "armsr",
+			subtarget: "armv7",
+			arch:      "arm_cortex-a15_neon-vfpv4",
+			release:   "23.05.5",
+			gccVer:    "12.3.0",
+		}
+	default:
+		log.Fatalf("unsupported CPU for musl: %s", t.CPU)
+		return openwrtConfig{}
+	}
+}
+
+// getOpenwrtFlags returns the OPENWRT_FLAGS environment variable value
+func getOpenwrtFlags(t Target) string {
+	config := getOpenwrtConfig(t)
+	return fmt.Sprintf(
+		`target="%s" subtarget="%s" arch="%s" release="%s" gcc_ver="%s"`,
+		config.target, config.subtarget, config.arch, config.release, config.gccVer,
+	)
+}
+
 // runGetClang runs naiveproxy's get-clang.sh with appropriate EXTRA_FLAGS
 func runGetClang(t Target) {
 	// For cross-compilation on Linux, we need to also build host sysroot first
-	// because GN needs host sysroot in addition to target sysroot
+	// because GN needs host sysroot in addition to target sysroot.
+	// This applies to linux, android, and openwrt targets.
 	hostOS := runtime.GOOS
 	hostCPU := hostToCPU(runtime.GOARCH)
-	if hostOS == "linux" && (t.OS == "linux" || t.OS == "android") && t.CPU != hostCPU {
+	needsHostSysroot := hostOS == "linux" && (t.OS == "linux" || t.OS == "android" || t.OS == "openwrt")
+	if needsHostSysroot {
 		// Run get-clang.sh with host target to ensure host sysroot is downloaded
 		hostFlags := fmt.Sprintf(`target_os="linux" target_cpu="%s"`, hostCPU)
 		log.Printf("Running get-clang.sh for host sysroot with EXTRA_FLAGS=%s", hostFlags)
@@ -78,11 +145,20 @@ func runGetClang(t Target) {
 	}
 
 	extraFlags := getExtraFlags(t)
-	log.Printf("Running get-clang.sh with EXTRA_FLAGS=%s", extraFlags)
+	env := []string{"EXTRA_FLAGS=" + extraFlags}
+
+	// For openwrt (musl), also set OPENWRT_FLAGS
+	if t.OS == "openwrt" {
+		openwrtFlags := getOpenwrtFlags(t)
+		env = append(env, "OPENWRT_FLAGS="+openwrtFlags)
+		log.Printf("Running get-clang.sh with EXTRA_FLAGS=%s OPENWRT_FLAGS=%s", extraFlags, openwrtFlags)
+	} else {
+		log.Printf("Running get-clang.sh with EXTRA_FLAGS=%s", extraFlags)
+	}
 
 	command := exec.Command("bash", "./get-clang.sh")
 	command.Dir = srcRoot
-	command.Env = append(os.Environ(), "EXTRA_FLAGS="+extraFlags)
+	command.Env = append(os.Environ(), env...)
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr
 	err := command.Run()
@@ -149,6 +225,18 @@ func buildTarget(t Target) {
 		}[t.CPU]
 		sysrootDirectory := fmt.Sprintf("out/sysroot-build/bullseye/bullseye_%s_staging", sysrootArch)
 		args = append(args, "use_sysroot=true", fmt.Sprintf("target_sysroot=\"//%s\"", sysrootDirectory))
+		if t.CPU == "x64" {
+			args = append(args, "use_cfi_icall=false", "is_cfi=false")
+		}
+	case "openwrt":
+		// OpenWrt uses musl libc
+		config := getOpenwrtConfig(t)
+		sysrootDirectory := fmt.Sprintf("out/sysroot-build/openwrt/%s/%s", config.release, config.arch)
+		args = append(args,
+			"use_sysroot=true",
+			fmt.Sprintf("target_sysroot=\"//%s\"", sysrootDirectory),
+			"build_static=true", // Static linking for musl
+		)
 		if t.CPU == "x64" {
 			args = append(args, "use_cfi_icall=false", "is_cfi=false")
 		}

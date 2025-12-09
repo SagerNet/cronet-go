@@ -15,10 +15,11 @@ import (
 
 // Target represents a build target platform
 type Target struct {
-	OS   string // gn target_os: linux, mac, win, android, ios
+	OS   string // gn target_os: linux, mac, win, android, ios, openwrt
 	CPU  string // gn target_cpu: x64, arm64, x86, arm
 	GOOS string // Go GOOS
 	ARCH string // Go GOARCH
+	Libc string // C library: "" (default), "glibc", or "musl" (Linux only)
 }
 
 var allTargets = []Target{
@@ -43,6 +44,7 @@ var (
 	naiveRoot   string
 	srcRoot     string
 	targetStr   string
+	libcStr     string
 )
 
 var mainCommand = &cobra.Command{
@@ -55,6 +57,7 @@ func init() {
 	log.SetFlags(0)
 	log.SetPrefix("[build] ")
 	mainCommand.PersistentFlags().StringVarP(&targetStr, "targets", "t", "", "Comma-separated list of targets (e.g., linux/amd64,darwin/arm64). Empty means host only.")
+	mainCommand.PersistentFlags().StringVar(&libcStr, "libc", "", "C library for Linux: glibc (default) or musl")
 }
 
 func preRun(cmd *cobra.Command, args []string) {
@@ -79,20 +82,31 @@ func preRun(cmd *cobra.Command, args []string) {
 }
 
 func parseTargets() []Target {
+	// Validate libc option
+	if libcStr != "" && libcStr != "glibc" && libcStr != "musl" {
+		log.Fatalf("invalid libc: %s (expected glibc or musl)", libcStr)
+	}
+
 	if targetStr == "" {
 		// Default to host platform
 		hostOS := runtime.GOOS
 		hostArch := runtime.GOARCH
 		for _, t := range allTargets {
 			if t.GOOS == hostOS && t.ARCH == hostArch {
-				return []Target{t}
+				target := t
+				target = applyLibc(target)
+				return []Target{target}
 			}
 		}
 		log.Fatalf("unsupported host platform: %s/%s", hostOS, hostArch)
 	}
 
 	if targetStr == "all" {
-		return allTargets
+		targets := make([]Target, len(allTargets))
+		for i, t := range allTargets {
+			targets[i] = applyLibc(t)
+		}
+		return targets
 	}
 
 	var targets []Target
@@ -106,7 +120,8 @@ func parseTargets() []Target {
 		found := false
 		for _, t := range allTargets {
 			if t.GOOS == goos && t.ARCH == goarch {
-				targets = append(targets, t)
+				target := applyLibc(t)
+				targets = append(targets, target)
 				found = true
 				break
 			}
@@ -116,6 +131,23 @@ func parseTargets() []Target {
 		}
 	}
 	return targets
+}
+
+// applyLibc applies the --libc flag to a target
+func applyLibc(target Target) Target {
+	if libcStr == "" || libcStr == "glibc" {
+		return target
+	}
+
+	// musl is only supported on Linux
+	if target.GOOS != "linux" {
+		log.Fatalf("--libc=musl is only supported for Linux targets, not %s", target.GOOS)
+	}
+
+	// For musl, we use openwrt as the target OS
+	target.OS = "openwrt"
+	target.Libc = "musl"
+	return target
 }
 
 // hostToCPU converts Go GOARCH to GN cpu

@@ -190,8 +190,80 @@ jobs:
             include/
             cgo_*.go
 
+  linux-musl:
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            cpu: x64
+            clang_target: x86_64-openwrt-linux-musl
+            openwrt_arch: x86_64
+          - arch: arm64
+            cpu: arm64
+            clang_target: aarch64-openwrt-linux-musl
+            openwrt_arch: aarch64
+          - arch: "386"
+            cpu: x86
+            clang_target: i486-openwrt-linux-musl
+            openwrt_arch: i386_pentium4
+          - arch: arm
+            cpu: arm
+            clang_target: arm-openwrt-linux-musleabi
+            openwrt_arch: arm_cortex-a15_neon-vfpv4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ^1.22
+      - name: Get naiveproxy commit
+        id: naive
+        run: echo "commit=$(git -C naiveproxy rev-parse HEAD)" >> $GITHUB_OUTPUT
+      - name: Cache package artifacts
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            lib/
+            include/
+            cgo_*.go
+          key: naive-${{ steps.naive.outputs.commit }}-${{ hashFiles('cmd/build-naive/**') }}-linux-musl-${{ matrix.arch }}
+      - name: Install packages
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: sudo apt update && sudo apt install -y ninja-build zstd
+      - name: Build
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: go run ./cmd/build-naive --targets=linux/${{ matrix.arch }} --libc=musl build
+      - name: Package
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: go run ./cmd/build-naive --targets=linux/${{ matrix.arch }} --libc=musl package
+      - name: Download clang and sysroot
+        if: steps.cache.outputs.cache-hit == 'true'
+        run: |
+          sudo apt update && sudo apt install -y zstd
+          go run ./cmd/build-naive --targets=linux/${{ matrix.arch }} --libc=musl download-toolchain
+      - name: Build test binary
+        run: |
+          CLANG=$PWD/naiveproxy/src/third_party/llvm-build/Release+Asserts/bin/clang
+          SYSROOT=$PWD/naiveproxy/src/out/sysroot-build/openwrt/23.05.5/${{ matrix.openwrt_arch }}
+          CC="$CLANG --target=${{ matrix.clang_target }} --sysroot=$SYSROOT" \
+          CGO_ENABLED=1 \
+          GOOS=linux \
+          GOARCH=${{ matrix.arch }} \
+          go test -c -tags with_musl -ldflags '-linkmode external -extldflags "-static -fuse-ld=lld"' -o cronet.test .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cronet-linux-musl-${{ matrix.arch }}
+          path: |
+            lib/
+            include/
+            cgo_*.go
+
   publish:
-    needs: [linux, darwin, windows, android]
+    needs: [linux, linux-musl, darwin, windows, android]
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
