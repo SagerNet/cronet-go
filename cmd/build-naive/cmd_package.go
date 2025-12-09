@@ -26,7 +26,7 @@ func init() {
 func packageTargets(targets []Target) {
 	log.Printf("Packaging libraries for %d target(s)", len(targets))
 
-	// Create lib directories
+	// Create lib directory
 	libraryDirectory := filepath.Join(projectRoot, "lib")
 	includeDirectory := filepath.Join(projectRoot, "include")
 
@@ -34,7 +34,7 @@ func packageTargets(targets []Target) {
 	os.RemoveAll(includeDirectory)
 	os.MkdirAll(includeDirectory, 0o755)
 
-	// Copy headers
+	// Copy headers to main module
 	headers := []struct {
 		source      string
 		destination string
@@ -72,10 +72,25 @@ func packageTargets(targets []Target) {
 		}
 	}
 
-	// Generate CGO config files
-	generateCGOConfigs(targets)
+	// Generate main module cgo.go and submodule files
+	generateCGOConfig()
+	generateSubmodules(targets)
 
 	log.Print("Package complete!")
+}
+
+func generateCGOConfig() {
+	content := `package cronet
+
+// #cgo CFLAGS: -I${SRCDIR}/include
+import "C"
+`
+	path := filepath.Join(projectRoot, "include.go")
+	err := os.WriteFile(path, []byte(content), 0o644)
+	if err != nil {
+		log.Fatalf("failed to write include.go: %v", err)
+	}
+	log.Print("Generated include.go")
 }
 
 // getLibraryDirectoryName returns the library directory name for a target
@@ -86,17 +101,34 @@ func getLibraryDirectoryName(t Target) string {
 	return fmt.Sprintf("%s_%s", t.GOOS, t.ARCH)
 }
 
-func generateCGOConfigs(targets []Target) {
+func generateSubmodules(targets []Target) {
+	versionFile := filepath.Join(naiveRoot, "CHROMIUM_VERSION")
+	versionData, err := os.ReadFile(versionFile)
+	if err != nil {
+		log.Fatalf("failed to read CHROMIUM_VERSION: %v", err)
+	}
+	chromiumVersion := strings.TrimSpace(string(versionData))
+
 	for _, t := range targets {
-		libraryDirectory := "${SRCDIR}/lib/" + getLibraryDirectoryName(t)
+		directoryName := getLibraryDirectoryName(t)
+		targetDirectory := filepath.Join(projectRoot, "lib", directoryName)
+
+		// Generate go.mod
+		goModContent := fmt.Sprintf(`module github.com/sagernet/cronet-go/lib/%s
+
+go 1.20
+`, directoryName)
+		goModPath := filepath.Join(targetDirectory, "go.mod")
+		err := os.WriteFile(goModPath, []byte(goModContent), 0o644)
+		if err != nil {
+			log.Fatalf("failed to write go.mod: %v", err)
+		}
 
 		// Platform-specific flags
 		var platformFlags []string
 		switch t.GOOS {
 		case "linux":
 			if t.Libc == "musl" {
-				// musl: these libraries are built into libc, no need to link separately
-				// Static linking is handled by the library itself
 				platformFlags = []string{}
 			} else {
 				platformFlags = []string{"-ldl", "-lpthread", "-lm", "-lresolv"}
@@ -131,49 +163,48 @@ func generateCGOConfigs(targets []Target) {
 			}
 		}
 
-		// Generate static library config
-		// macOS: use direct path (doesn't support -l: syntax), also needs IOKit and libbsm
-		// Linux: use -l:libcronet.a syntax
-		var staticFilename string
+		// Build tags and LDFLAGS
 		var buildTag string
 		if t.Libc == "musl" {
-			staticFilename = fmt.Sprintf("cgo_%s_%s_musl.go", t.GOOS, t.ARCH)
 			buildTag = fmt.Sprintf("%s && %s && with_musl", t.GOOS, t.ARCH)
+		} else if t.GOOS == "linux" {
+			buildTag = fmt.Sprintf("%s && %s && !with_musl", t.GOOS, t.ARCH)
 		} else {
-			staticFilename = fmt.Sprintf("cgo_%s_%s.go", t.GOOS, t.ARCH)
-			if t.GOOS == "linux" {
-				// For Linux glibc, add !with_musl to exclude when musl is requested
-				buildTag = fmt.Sprintf("%s && %s && !with_musl", t.GOOS, t.ARCH)
-			} else {
-				buildTag = fmt.Sprintf("%s && %s", t.GOOS, t.ARCH)
-			}
+			buildTag = fmt.Sprintf("%s && %s", t.GOOS, t.ARCH)
 		}
 
-		staticPath := filepath.Join(projectRoot, staticFilename)
-		var staticFlags []string
+		var ldFlags []string
 		if t.GOOS == "darwin" {
-			staticFlags = append([]string{libraryDirectory + "/libcronet.a", "-lc++", "-lbsm", "-framework IOKit"}, platformFlags...)
+			ldFlags = append([]string{"${SRCDIR}/libcronet.a", "-lc++", "-lbsm", "-framework IOKit"}, platformFlags...)
 		} else if t.GOOS == "ios" {
-			staticFlags = append([]string{libraryDirectory + "/libcronet.a", "-lc++"}, platformFlags...)
+			ldFlags = append([]string{"${SRCDIR}/libcronet.a", "-lc++"}, platformFlags...)
 		} else if t.Libc == "musl" {
-			// For musl with build_static=true, libc++ is already statically linked into libcronet.a
-			staticFlags = append([]string{"-L" + libraryDirectory, "-l:libcronet.a"}, platformFlags...)
+			ldFlags = append([]string{"-L${SRCDIR}", "-l:libcronet.a"}, platformFlags...)
 		} else {
-			staticFlags = append([]string{"-L" + libraryDirectory, "-l:libcronet.a", "-lc++"}, platformFlags...)
+			ldFlags = append([]string{"-L${SRCDIR}", "-l:libcronet.a", "-lc++"}, platformFlags...)
 		}
-		staticContent := fmt.Sprintf(`//go:build %s
 
-package cronet
+		// Generate cgo.go (only LDFLAGS, CFLAGS is in main module)
+		packageName := strings.ReplaceAll(directoryName, "-", "_")
+		cgoContent := fmt.Sprintf(`//go:build %s
 
-// #cgo CFLAGS: -I${SRCDIR}/include
+package %s
+
 // #cgo LDFLAGS: %s
 import "C"
-`, buildTag, strings.Join(staticFlags, " "))
 
-		err := os.WriteFile(staticPath, []byte(staticContent), 0o644)
+const Version = "%s"
+`, buildTag, packageName, strings.Join(ldFlags, " "), chromiumVersion)
+
+		cgoPath := filepath.Join(targetDirectory, "cgo.go")
+		err = os.WriteFile(cgoPath, []byte(cgoContent), 0o644)
 		if err != nil {
-			log.Fatalf("failed to write %s: %v", staticFilename, err)
+			log.Fatalf("failed to write cgo.go: %v", err)
 		}
-		log.Printf("Generated %s", staticFilename)
+
+		// Run go mod tidy
+		runCommand(targetDirectory, "go", "mod", "tidy")
+
+		log.Printf("Generated submodule lib/%s", directoryName)
 	}
 }
