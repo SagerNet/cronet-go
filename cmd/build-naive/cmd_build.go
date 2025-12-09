@@ -130,6 +130,7 @@ func buildTarget(t Target) {
 		"enable_resource_allowlist_generation=false",
 		"symbol_level=0",
 		"enable_dsyms=false",
+		"optimize_for_size=true",
 		fmt.Sprintf("target_os=\"%s\"", t.OS),
 		fmt.Sprintf("target_cpu=\"%s\"", t.CPU),
 	}
@@ -159,8 +160,8 @@ func buildTarget(t Target) {
 		args = append(args,
 			"use_sysroot=false",
 			"ios_enable_code_signing=false",
-			"enable_ios_bitcode=false",
 			`target_environment="device"`,
+			`ios_deployment_target="15.0"`,
 		)
 	}
 
