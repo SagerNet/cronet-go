@@ -21,7 +21,10 @@ go run ./cmd/build-naive package
 | darwin/amd64  | mac     | x64   |
 | darwin/arm64  | mac     | arm64 |
 | ios/arm64     | ios     | arm64 |
+| linux/386     | linux   | x86   |
 | linux/amd64   | linux   | x64   |
+| linux/arm     | linux   | arm   |
 | linux/arm64   | linux   | arm64 |
+| windows/386   | win     | x86   |
 | windows/amd64 | win     | x64   |
 | windows/arm64 | win     | arm64 |

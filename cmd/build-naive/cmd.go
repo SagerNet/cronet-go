@@ -24,10 +24,13 @@ type Target struct {
 var allTargets = []Target{
 	{OS: "linux", CPU: "x64", GOOS: "linux", ARCH: "amd64"},
 	{OS: "linux", CPU: "arm64", GOOS: "linux", ARCH: "arm64"},
+	{OS: "linux", CPU: "x86", GOOS: "linux", ARCH: "386"},
+	{OS: "linux", CPU: "arm", GOOS: "linux", ARCH: "arm"},
 	{OS: "mac", CPU: "x64", GOOS: "darwin", ARCH: "amd64"},
 	{OS: "mac", CPU: "arm64", GOOS: "darwin", ARCH: "arm64"},
 	{OS: "win", CPU: "x64", GOOS: "windows", ARCH: "amd64"},
 	{OS: "win", CPU: "arm64", GOOS: "windows", ARCH: "arm64"},
+	{OS: "win", CPU: "x86", GOOS: "windows", ARCH: "386"},
 	{OS: "ios", CPU: "arm64", GOOS: "ios", ARCH: "arm64"},
 	{OS: "android", CPU: "arm64", GOOS: "android", ARCH: "arm64"},
 	{OS: "android", CPU: "x64", GOOS: "android", ARCH: "amd64"},

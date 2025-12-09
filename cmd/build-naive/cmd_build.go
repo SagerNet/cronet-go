@@ -141,7 +141,12 @@ func buildTarget(t Target) {
 		args = append(args, "use_sysroot=false")
 	case "linux":
 		// Sysroot is handled by get-clang.sh, use the naiveproxy path
-		sysrootArch := map[string]string{"x64": "amd64", "arm64": "arm64"}[t.CPU]
+		sysrootArch := map[string]string{
+			"x64":   "amd64",
+			"arm64": "arm64",
+			"x86":   "i386",
+			"arm":   "armhf",
+		}[t.CPU]
 		sysrootDirectory := fmt.Sprintf("out/sysroot-build/bullseye/bullseye_%s_staging", sysrootArch)
 		args = append(args, "use_sysroot=true", fmt.Sprintf("target_sysroot=\"//%s\"", sysrootDirectory))
 		if t.CPU == "x64" {
@@ -152,7 +157,7 @@ func buildTarget(t Target) {
 	case "android":
 		args = append(args,
 			"use_sysroot=false",
-			"default_min_sdk_version=24",
+			"default_min_sdk_version=21",
 			"is_high_end_android=true",
 			"android_ndk_major_version=28",
 		)
