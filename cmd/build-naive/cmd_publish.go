@@ -203,12 +203,15 @@ func getBuildTagForTarget(targetName string) string {
 	}
 
 	if isMusl {
-		return fmt.Sprintf("%s && %s && with_musl", goos, goarch)
+		return fmt.Sprintf("%s && !android && %s && with_musl", goos, goarch)
 	}
 
-	// For non-musl Linux, add !with_musl constraint
 	if goos == "linux" {
-		return fmt.Sprintf("%s && %s && !with_musl", goos, goarch)
+		return fmt.Sprintf("%s && !android && %s && !with_musl", goos, goarch)
+	}
+
+	if goos == "darwin" {
+		return fmt.Sprintf("%s && !ios && %s", goos, goarch)
 	}
 
 	return fmt.Sprintf("%s && %s", goos, goarch)
@@ -219,7 +222,7 @@ func runGoModTidy(directory string) {
 	log.Printf("Running go mod tidy in %s with GOPROXY=direct...", directory)
 	command := exec.Command("go", "mod", "tidy")
 	command.Dir = directory
-	command.Env = append(os.Environ(), "GOPROXY=direct")
+	command.Env = append(os.Environ(), "GOPROXY=direct", "GOSUMDB=off")
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr
 	err := command.Run()

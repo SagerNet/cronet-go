@@ -58,8 +58,14 @@ func packageTargets(targets []Target) {
 		outputDirectory := fmt.Sprintf("out/cronet-%s-%s", t.OS, t.CPU)
 
 		// Copy static library
-		sourceStatic := filepath.Join(srcRoot, outputDirectory, "obj/components/cronet/libcronet_static.a")
-		destinationStatic := filepath.Join(targetDirectory, "libcronet.a")
+		var sourceStatic, destinationStatic string
+		if t.GOOS == "windows" {
+			sourceStatic = filepath.Join(srcRoot, outputDirectory, "obj/components/cronet/cronet_static.lib")
+			destinationStatic = filepath.Join(targetDirectory, "cronet.lib")
+		} else {
+			sourceStatic = filepath.Join(srcRoot, outputDirectory, "obj/components/cronet/libcronet_static.a")
+			destinationStatic = filepath.Join(targetDirectory, "libcronet.a")
+		}
 		if _, err := os.Stat(sourceStatic); os.IsNotExist(err) {
 			log.Printf("Warning: static library not found for %s/%s, skipping", t.GOOS, t.ARCH)
 		} else {
@@ -166,9 +172,11 @@ go 1.20
 		// Build tags and LDFLAGS
 		var buildTag string
 		if t.Libc == "musl" {
-			buildTag = fmt.Sprintf("%s && %s && with_musl", t.GOOS, t.ARCH)
+			buildTag = fmt.Sprintf("%s && !android && %s && with_musl", t.GOOS, t.ARCH)
 		} else if t.GOOS == "linux" {
-			buildTag = fmt.Sprintf("%s && %s && !with_musl", t.GOOS, t.ARCH)
+			buildTag = fmt.Sprintf("%s && !android && %s && !with_musl", t.GOOS, t.ARCH)
+		} else if t.GOOS == "darwin" {
+			buildTag = fmt.Sprintf("%s && !ios && %s", t.GOOS, t.ARCH)
 		} else {
 			buildTag = fmt.Sprintf("%s && %s", t.GOOS, t.ARCH)
 		}
@@ -178,10 +186,12 @@ go 1.20
 			ldFlags = append([]string{"${SRCDIR}/libcronet.a", "-lc++", "-lbsm", "-framework IOKit"}, platformFlags...)
 		} else if t.GOOS == "ios" {
 			ldFlags = append([]string{"${SRCDIR}/libcronet.a", "-lc++"}, platformFlags...)
+		} else if t.GOOS == "windows" {
+			ldFlags = append([]string{"${SRCDIR}/cronet.lib"}, platformFlags...)
 		} else if t.Libc == "musl" {
 			ldFlags = append([]string{"-L${SRCDIR}", "-l:libcronet.a"}, platformFlags...)
 		} else {
-			ldFlags = append([]string{"-L${SRCDIR}", "-l:libcronet.a", "-lc++"}, platformFlags...)
+			ldFlags = append([]string{"-L${SRCDIR}", "-l:libcronet.a"}, platformFlags...)
 		}
 
 		// Generate cgo.go (only LDFLAGS, CFLAGS is in main module)

@@ -162,7 +162,7 @@ jobs:
             lib/
             include/
             include.go
-          key: naive-${{ steps.naive.outputs.commit }}-${{ hashFiles('cmd/build-naive/cmd_build.go') }}-windows-${{ matrix.arch }}
+          key: naive-${{ steps.naive.outputs.commit }}-${{ hashFiles('cmd/build-naive/cmd_build.go') }}-windows-${{ matrix.arch }}-v2
       - id: ccache-timestamp
         if: steps.cache.outputs.cache-hit != 'true'
         shell: bash
@@ -177,8 +177,7 @@ jobs:
       - name: Install tools
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
-          choco install ninja
-          cargo install sccache --locked
+          choco install ninja sccache
       - name: Reset sccache stats
         if: steps.cache.outputs.cache-hit != 'true'
         run: sccache -z
