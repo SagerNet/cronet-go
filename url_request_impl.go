@@ -3,13 +3,13 @@ package cronet
 // #include <stdlib.h>
 // #include <stdbool.h>
 // #include <cronet_c.h>
-// extern Cronet_RESULT cronetUrlRequestInitWithParams(Cronet_UrlRequestPtr self, Cronet_EnginePtr engine, Cronet_String url, Cronet_UrlRequestParamsPtr params, Cronet_UrlRequestCallbackPtr callback, Cronet_ExecutorPtr executor);
-// extern Cronet_RESULT cronetUrlRequestStart(Cronet_UrlRequestPtr self);
-// extern Cronet_RESULT cronetUrlRequestFollowRedirect(Cronet_UrlRequestPtr self);
-// extern Cronet_RESULT cronetUrlRequestRead(Cronet_UrlRequestPtr self, Cronet_BufferPtr buffer);
-// extern void cronetUrlRequestCancel(Cronet_UrlRequestPtr self);
-// extern bool cronetUrlRequestIsDone(Cronet_UrlRequestPtr self);
-// extern void cronetUrlRequestGetStatus(Cronet_UrlRequestPtr self, Cronet_UrlRequestStatusListenerPtr listener);
+// extern CRONET_EXPORT Cronet_RESULT cronetUrlRequestInitWithParams(Cronet_UrlRequestPtr self, Cronet_EnginePtr engine, Cronet_String url, Cronet_UrlRequestParamsPtr params, Cronet_UrlRequestCallbackPtr callback, Cronet_ExecutorPtr executor);
+// extern CRONET_EXPORT Cronet_RESULT cronetUrlRequestStart(Cronet_UrlRequestPtr self);
+// extern CRONET_EXPORT Cronet_RESULT cronetUrlRequestFollowRedirect(Cronet_UrlRequestPtr self);
+// extern CRONET_EXPORT Cronet_RESULT cronetUrlRequestRead(Cronet_UrlRequestPtr self, Cronet_BufferPtr buffer);
+// extern CRONET_EXPORT void cronetUrlRequestCancel(Cronet_UrlRequestPtr self);
+// extern CRONET_EXPORT bool cronetUrlRequestIsDone(Cronet_UrlRequestPtr self);
+// extern CRONET_EXPORT void cronetUrlRequestGetStatus(Cronet_UrlRequestPtr self, Cronet_UrlRequestStatusListenerPtr listener);
 import "C"
 
 import (

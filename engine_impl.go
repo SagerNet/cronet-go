@@ -3,14 +3,14 @@ package cronet
 // #include <stdlib.h>
 // #include <stdbool.h>
 // #include <cronet_c.h>
-// extern Cronet_RESULT cronetEngineStartWithParams(Cronet_EnginePtr self, Cronet_EngineParamsPtr params);
-// extern bool cronetEngineStartNetLogToFile(Cronet_EnginePtr self, Cronet_String file_name, bool log_all);
-// extern void cronetEngineStopNetLog(Cronet_EnginePtr self);
-// extern Cronet_RESULT cronetEngineShutdown(Cronet_EnginePtr self);
-// extern Cronet_String cronetEngineGetVersionString(Cronet_EnginePtr self);
-// extern Cronet_String cronetEngineGetDefaultUserAgent(Cronet_EnginePtr self);
-// extern void cronetEngineAddRequestFinishedListener(Cronet_EnginePtr self, Cronet_RequestFinishedInfoListenerPtr listener, Cronet_ExecutorPtr executor);
-// extern void cronetEngineRemoveRequestFinishedListener(Cronet_EnginePtr self, Cronet_RequestFinishedInfoListenerPtr listener);
+// extern CRONET_EXPORT Cronet_RESULT cronetEngineStartWithParams(Cronet_EnginePtr self, Cronet_EngineParamsPtr params);
+// extern CRONET_EXPORT bool cronetEngineStartNetLogToFile(Cronet_EnginePtr self, Cronet_String file_name, bool log_all);
+// extern CRONET_EXPORT void cronetEngineStopNetLog(Cronet_EnginePtr self);
+// extern CRONET_EXPORT Cronet_RESULT cronetEngineShutdown(Cronet_EnginePtr self);
+// extern CRONET_EXPORT Cronet_String cronetEngineGetVersionString(Cronet_EnginePtr self);
+// extern CRONET_EXPORT Cronet_String cronetEngineGetDefaultUserAgent(Cronet_EnginePtr self);
+// extern CRONET_EXPORT void cronetEngineAddRequestFinishedListener(Cronet_EnginePtr self, Cronet_RequestFinishedInfoListenerPtr listener, Cronet_ExecutorPtr executor);
+// extern CRONET_EXPORT void cronetEngineRemoveRequestFinishedListener(Cronet_EnginePtr self, Cronet_RequestFinishedInfoListenerPtr listener);
 import "C"
 
 import (

@@ -3,10 +3,10 @@ package cronet
 // #include <stdlib.h>
 // #include <stdbool.h>
 // #include <cronet_c.h>
-// extern void cronetUploadDataSinkOnReadSucceeded(Cronet_UploadDataSinkPtr self, uint64_t bytes_read, bool final_chunk);
-// extern void cronetUploadDataSinkOnReadError(Cronet_UploadDataSinkPtr self, Cronet_String error_message);
-// extern void cronetUploadDataSinkOnRewindSucceeded(Cronet_UploadDataSinkPtr self);
-// extern void cronetUploadDataSinkOnRewindError(Cronet_UploadDataSinkPtr self, Cronet_String error_message);
+// extern CRONET_EXPORT void cronetUploadDataSinkOnReadSucceeded(Cronet_UploadDataSinkPtr self, uint64_t bytes_read, bool final_chunk);
+// extern CRONET_EXPORT void cronetUploadDataSinkOnReadError(Cronet_UploadDataSinkPtr self, Cronet_String error_message);
+// extern CRONET_EXPORT void cronetUploadDataSinkOnRewindSucceeded(Cronet_UploadDataSinkPtr self);
+// extern CRONET_EXPORT void cronetUploadDataSinkOnRewindError(Cronet_UploadDataSinkPtr self, Cronet_String error_message);
 import "C"
 
 import (

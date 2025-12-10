@@ -3,7 +3,7 @@ package cronet
 // #include <stdlib.h>
 // #include <stdbool.h>
 // #include <cronet_c.h>
-// extern void cronetExecutorExecute(Cronet_ExecutorPtr self,Cronet_RunnablePtr command);
+// extern CRONET_EXPORT void cronetExecutorExecute(Cronet_ExecutorPtr self,Cronet_RunnablePtr command);
 import "C"
 
 import (

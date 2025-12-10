@@ -3,7 +3,7 @@ package cronet
 // #include <stdlib.h>
 // #include <stdbool.h>
 // #include <cronet_c.h>
-// extern void cronetBufferCallbackOnDestroy(Cronet_BufferCallbackPtr self,Cronet_BufferPtr buffer);
+// extern CRONET_EXPORT void cronetBufferCallbackOnDestroy(Cronet_BufferCallbackPtr self,Cronet_BufferPtr buffer);
 import "C"
 
 import (

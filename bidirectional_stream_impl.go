@@ -4,14 +4,14 @@ package cronet
 // #include <stdlib.h>
 // #include <cronet_c.h>
 // #include <bidirectional_stream_c.h>
-// extern void cronetBidirectionalStreamOnStreamReady(bidirectional_stream* stream);
-// extern void cronetBidirectionalStreamOnResponseHeadersReceived(bidirectional_stream* stream, bidirectional_stream_header_array* headers, char* negotiated_protocol);
-// extern void cronetBidirectionalStreamOnReadCompleted(bidirectional_stream* stream, char* data, int bytes_read);
-// extern void cronetBidirectionalStreamOnWriteCompleted(bidirectional_stream* stream, char* data);
-// extern void cronetBidirectionalStreamOnResponseTrailersReceived(bidirectional_stream* stream, bidirectional_stream_header_array* trailers);
-// extern void cronetBidirectionalStreamOnSucceed(bidirectional_stream* stream);
-// extern void cronetBidirectionalStreamOnFailed(bidirectional_stream* stream, int net_error);
-// extern void cronetBidirectionalStreamOnCanceled(bidirectional_stream* stream);
+// extern CRONET_EXPORT void cronetBidirectionalStreamOnStreamReady(bidirectional_stream* stream);
+// extern CRONET_EXPORT void cronetBidirectionalStreamOnResponseHeadersReceived(bidirectional_stream* stream, bidirectional_stream_header_array* headers, char* negotiated_protocol);
+// extern CRONET_EXPORT void cronetBidirectionalStreamOnReadCompleted(bidirectional_stream* stream, char* data, int bytes_read);
+// extern CRONET_EXPORT void cronetBidirectionalStreamOnWriteCompleted(bidirectional_stream* stream, char* data);
+// extern CRONET_EXPORT void cronetBidirectionalStreamOnResponseTrailersReceived(bidirectional_stream* stream, bidirectional_stream_header_array* trailers);
+// extern CRONET_EXPORT void cronetBidirectionalStreamOnSucceed(bidirectional_stream* stream);
+// extern CRONET_EXPORT void cronetBidirectionalStreamOnFailed(bidirectional_stream* stream, int net_error);
+// extern CRONET_EXPORT void cronetBidirectionalStreamOnCanceled(bidirectional_stream* stream);
 import "C"
 
 import (

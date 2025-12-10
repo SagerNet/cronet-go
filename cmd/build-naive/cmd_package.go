@@ -60,14 +60,13 @@ func packageTargets(targets []Target) {
 		outputDirectory := fmt.Sprintf("out/cronet-%s-%s", t.OS, t.CPU)
 
 		// Copy static library
-		var sourceStatic, destinationStatic string
+		var sourceStatic string
 		if t.GOOS == "windows" {
 			sourceStatic = filepath.Join(srcRoot, outputDirectory, "obj/components/cronet/cronet_static.lib")
-			destinationStatic = filepath.Join(targetDirectory, "cronet.lib")
 		} else {
 			sourceStatic = filepath.Join(srcRoot, outputDirectory, "obj/components/cronet/libcronet_static.a")
-			destinationStatic = filepath.Join(targetDirectory, "libcronet.a")
 		}
+		destinationStatic := filepath.Join(targetDirectory, "libcronet.a")
 		if _, err := os.Stat(sourceStatic); os.IsNotExist(err) {
 			log.Printf("Warning: static library not found for %s/%s, skipping", t.GOOS, t.ARCH)
 		} else {
@@ -78,6 +77,7 @@ func packageTargets(targets []Target) {
 				log.Printf("Copied static library for %s/%s", t.GOOS, t.ARCH)
 			}
 		}
+
 	}
 
 	// Generate main module cgo.go and submodule files
@@ -195,6 +195,34 @@ func parseLDFlags(input string) []string {
 	return result
 }
 
+// convertWindowsLibsToMinGW converts MSVC-style library names to MinGW-style flags.
+// Example: "advapi32.lib" -> "-ladvapi32"
+// It also filters out MSVC-specific CRT libraries that don't exist in MinGW.
+func convertWindowsLibsToMinGW(libs []string) []string {
+	// MSVC CRT libraries that don't exist in MinGW and should be filtered out
+	msvcCRTLibs := map[string]bool{
+		"libcmt":   true, // MSVC static CRT
+		"libcmtd":  true, // MSVC static CRT (debug)
+		"msvcrt":   true, // MSVC dynamic CRT
+		"msvcrtd":  true, // MSVC dynamic CRT (debug)
+		"oldnames": true, // MSVC POSIX compatibility
+	}
+
+	var result []string
+	for _, lib := range libs {
+		if strings.HasSuffix(lib, ".lib") {
+			name := strings.TrimSuffix(lib, ".lib")
+			if msvcCRTLibs[name] {
+				continue
+			}
+			result = append(result, "-l"+name)
+		} else {
+			result = append(result, lib)
+		}
+	}
+	return result
+}
+
 func generateSubmodules(targets []Target) {
 	versionFile := filepath.Join(naiveRoot, "CHROMIUM_VERSION")
 	versionData, err := os.ReadFile(versionFile)
@@ -243,9 +271,7 @@ go 1.20
 		var ldFlags []string
 
 		// Add static library reference
-		if t.GOOS == "windows" {
-			ldFlags = append(ldFlags, "${SRCDIR}/cronet.lib")
-		} else if t.GOOS == "darwin" || t.GOOS == "ios" {
+		if t.GOOS == "darwin" || t.GOOS == "ios" || t.GOOS == "windows" {
 			ldFlags = append(ldFlags, "${SRCDIR}/libcronet.a")
 		} else {
 			ldFlags = append(ldFlags, "-L${SRCDIR}", "-l:libcronet.a")
@@ -254,8 +280,15 @@ go 1.20
 		// Add extracted ldflags (e.g., -Wl,-wrap,* for Android)
 		ldFlags = append(ldFlags, linkFlags.LDFlags...)
 
-		// Add extracted libs
-		ldFlags = append(ldFlags, linkFlags.Libs...)
+		// Add extracted libs (convert to MinGW format for Windows)
+		if t.GOOS == "windows" {
+			ldFlags = append(ldFlags, convertWindowsLibsToMinGW(linkFlags.Libs)...)
+			// Tell LLD to ignore MSVC /DEFAULTLIB directives embedded in .lib files.
+			// Requires CGO_LDFLAGS_ALLOW="-Xlink.*" in downstream builds.
+			ldFlags = append(ldFlags, "-Wl,-Xlink=/nodefaultlib:libcmt", "-Wl,-Xlink=/nodefaultlib:oldnames")
+		} else {
+			ldFlags = append(ldFlags, linkFlags.Libs...)
+		}
 
 		// Add extracted frameworks
 		ldFlags = append(ldFlags, linkFlags.Frameworks...)

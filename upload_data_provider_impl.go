@@ -3,10 +3,10 @@ package cronet
 // #include <stdlib.h>
 // #include <stdbool.h>
 // #include <cronet_c.h>
-// extern int64_t cronetUploadDataProviderGetLength(Cronet_UploadDataProviderPtr self);
-// extern void cronetUploadDataProviderRead(Cronet_UploadDataProviderPtr self, Cronet_UploadDataSinkPtr upload_data_sink, Cronet_BufferPtr buffer);
-// extern void cronetUploadDataProviderRewind(Cronet_UploadDataProviderPtr self, Cronet_UploadDataSinkPtr upload_data_sink);
-// extern void cronetUploadDataProviderClose(Cronet_UploadDataProviderPtr self);
+// extern CRONET_EXPORT int64_t cronetUploadDataProviderGetLength(Cronet_UploadDataProviderPtr self);
+// extern CRONET_EXPORT void cronetUploadDataProviderRead(Cronet_UploadDataProviderPtr self, Cronet_UploadDataSinkPtr upload_data_sink, Cronet_BufferPtr buffer);
+// extern CRONET_EXPORT void cronetUploadDataProviderRewind(Cronet_UploadDataProviderPtr self, Cronet_UploadDataSinkPtr upload_data_sink);
+// extern CRONET_EXPORT void cronetUploadDataProviderClose(Cronet_UploadDataProviderPtr self);
 import "C"
 
 import (

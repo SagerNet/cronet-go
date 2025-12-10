@@ -3,7 +3,7 @@ package cronet
 // #include <stdlib.h>
 // #include <stdbool.h>
 // #include <cronet_c.h>
-// extern void cronetURLRequestStatusListenerOnStatus(Cronet_UrlRequestStatusListenerPtr self, Cronet_UrlRequestStatusListener_Status status);
+// extern CRONET_EXPORT void cronetURLRequestStatusListenerOnStatus(Cronet_UrlRequestStatusListenerPtr self, Cronet_UrlRequestStatusListener_Status status);
 import "C"
 
 import (

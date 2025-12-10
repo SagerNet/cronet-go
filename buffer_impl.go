@@ -3,10 +3,10 @@ package cronet
 // #include <stdlib.h>
 // #include <stdbool.h>
 // #include <cronet_c.h>
-// extern void cronetBufferInitWithDataAndCallback(Cronet_BufferPtr self, Cronet_RawDataPtr data, uint64_t size, Cronet_BufferCallbackPtr callback);
-// extern void cronetBufferInitWithAlloc(Cronet_BufferPtr self, uint64_t size);
-// extern uint64_t cronetBufferGetSize(Cronet_BufferPtr self);
-// extern Cronet_RawDataPtr cronetBufferGetData(Cronet_BufferPtr self);
+// extern CRONET_EXPORT void cronetBufferInitWithDataAndCallback(Cronet_BufferPtr self, Cronet_RawDataPtr data, uint64_t size, Cronet_BufferCallbackPtr callback);
+// extern CRONET_EXPORT void cronetBufferInitWithAlloc(Cronet_BufferPtr self, uint64_t size);
+// extern CRONET_EXPORT uint64_t cronetBufferGetSize(Cronet_BufferPtr self);
+// extern CRONET_EXPORT Cronet_RawDataPtr cronetBufferGetData(Cronet_BufferPtr self);
 import "C"
 
 import (

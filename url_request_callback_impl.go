@@ -3,12 +3,12 @@ package cronet
 // #include <stdlib.h>
 // #include <stdbool.h>
 // #include <cronet_c.h>
-// extern void cronetURLRequestCallbackOnRedirectReceived(Cronet_UrlRequestCallbackPtr self, Cronet_UrlRequestPtr request, Cronet_UrlResponseInfoPtr info, Cronet_String new_location_url);
-// extern void cronetURLRequestCallbackOnResponseStarted(Cronet_UrlRequestCallbackPtr self, Cronet_UrlRequestPtr request, Cronet_UrlResponseInfoPtr info);
-// extern void cronetURLRequestCallbackOnReadCompleted(Cronet_UrlRequestCallbackPtr self, Cronet_UrlRequestPtr request, Cronet_UrlResponseInfoPtr info, Cronet_BufferPtr buffer, uint64_t bytes_read);
-// extern void cronetURLRequestCallbackOnSucceeded(Cronet_UrlRequestCallbackPtr self, Cronet_UrlRequestPtr request, Cronet_UrlResponseInfoPtr info);
-// extern void cronetURLRequestCallbackOnFailed(Cronet_UrlRequestCallbackPtr self, Cronet_UrlRequestPtr request, Cronet_UrlResponseInfoPtr info, Cronet_ErrorPtr error);
-// extern void cronetURLRequestCallbackOnCanceled(Cronet_UrlRequestCallbackPtr self, Cronet_UrlRequestPtr request, Cronet_UrlResponseInfoPtr info);
+// extern CRONET_EXPORT void cronetURLRequestCallbackOnRedirectReceived(Cronet_UrlRequestCallbackPtr self, Cronet_UrlRequestPtr request, Cronet_UrlResponseInfoPtr info, Cronet_String new_location_url);
+// extern CRONET_EXPORT void cronetURLRequestCallbackOnResponseStarted(Cronet_UrlRequestCallbackPtr self, Cronet_UrlRequestPtr request, Cronet_UrlResponseInfoPtr info);
+// extern CRONET_EXPORT void cronetURLRequestCallbackOnReadCompleted(Cronet_UrlRequestCallbackPtr self, Cronet_UrlRequestPtr request, Cronet_UrlResponseInfoPtr info, Cronet_BufferPtr buffer, uint64_t bytes_read);
+// extern CRONET_EXPORT void cronetURLRequestCallbackOnSucceeded(Cronet_UrlRequestCallbackPtr self, Cronet_UrlRequestPtr request, Cronet_UrlResponseInfoPtr info);
+// extern CRONET_EXPORT void cronetURLRequestCallbackOnFailed(Cronet_UrlRequestCallbackPtr self, Cronet_UrlRequestPtr request, Cronet_UrlResponseInfoPtr info, Cronet_ErrorPtr error);
+// extern CRONET_EXPORT void cronetURLRequestCallbackOnCanceled(Cronet_UrlRequestCallbackPtr self, Cronet_UrlRequestPtr request, Cronet_UrlResponseInfoPtr info);
 import "C"
 
 import (

@@ -31,39 +31,35 @@ jobs:
       - name: Get naiveproxy commit
         id: naive
         run: echo "commit=$(git -C naiveproxy rev-parse HEAD)" >> $GITHUB_OUTPUT
-      - name: Cache package artifacts
-        id: cache
+      - name: Cache build artifacts
+        id: build-cache
         uses: actions/cache@v4
         with:
-          path: |
-            lib/
-            include/
-            include.go
-          key: naive-${{ steps.naive.outputs.commit }}-${{ hashFiles('cmd/build-naive/*.go') }}-linux-${{ matrix.arch }}
+          path: naiveproxy/src/out
+          key: naive-build-${{ steps.naive.outputs.commit }}-${{ hashFiles('cmd/build-naive/cmd_build.go', 'cmd/build-naive/cmd.go') }}-linux-${{ matrix.arch }}
       - id: ccache-timestamp
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.build-cache.outputs.cache-hit != 'true'
         run: echo "CCACHE_TIMESTAMP=$(date +%s)" >>$GITHUB_OUTPUT
       - name: Cache ccache files
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.build-cache.outputs.cache-hit != 'true'
         uses: actions/cache@v4
         with:
           path: ~/.cache/ccache
           key: ccache-linux-${{ matrix.arch }}-${{ steps.ccache-timestamp.outputs.CCACHE_TIMESTAMP }}
           restore-keys: ccache-linux-${{ matrix.arch }}-
       - name: Install packages
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.build-cache.outputs.cache-hit != 'true'
         run: sudo apt update && sudo apt install -y ninja-build ccache
       - name: Reset ccache stats
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.build-cache.outputs.cache-hit != 'true'
         run: ccache -z
       - name: Build
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.build-cache.outputs.cache-hit != 'true'
         run: go run ./cmd/build-naive --targets=linux/${{ matrix.arch }} build
       - name: Show ccache stats
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.build-cache.outputs.cache-hit != 'true'
         run: ccache -s
       - name: Package
-        if: steps.cache.outputs.cache-hit != 'true'
         run: go run ./cmd/build-naive --targets=linux/${{ matrix.arch }} package
       - uses: actions/upload-artifact@v4
         with:
@@ -95,39 +91,35 @@ jobs:
       - name: Get naiveproxy commit
         id: naive
         run: echo "commit=$(git -C naiveproxy rev-parse HEAD)" >> $GITHUB_OUTPUT
-      - name: Cache package artifacts
-        id: cache
+      - name: Cache build artifacts
+        id: build-cache
         uses: actions/cache@v4
         with:
-          path: |
-            lib/
-            include/
-            include.go
-          key: naive-${{ steps.naive.outputs.commit }}-${{ hashFiles('cmd/build-naive/*.go') }}-${{ matrix.name }}
+          path: naiveproxy/src/out
+          key: naive-build-${{ steps.naive.outputs.commit }}-${{ hashFiles('cmd/build-naive/cmd_build.go', 'cmd/build-naive/cmd.go') }}-${{ matrix.name }}
       - id: ccache-timestamp
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.build-cache.outputs.cache-hit != 'true'
         run: echo "CCACHE_TIMESTAMP=$(date +%s)" >>$GITHUB_OUTPUT
       - name: Cache ccache files
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.build-cache.outputs.cache-hit != 'true'
         uses: actions/cache@v4
         with:
           path: ~/Library/Caches/ccache
           key: ccache-darwin-${{ matrix.name }}-${{ steps.ccache-timestamp.outputs.CCACHE_TIMESTAMP }}
           restore-keys: ccache-darwin-${{ matrix.name }}-
       - name: Install tools
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.build-cache.outputs.cache-hit != 'true'
         run: brew install ninja ccache
       - name: Reset ccache stats
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.build-cache.outputs.cache-hit != 'true'
         run: ccache -z
       - name: Build
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.build-cache.outputs.cache-hit != 'true'
         run: go run ./cmd/build-naive --targets=${{ matrix.target }} build
       - name: Show ccache stats
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.build-cache.outputs.cache-hit != 'true'
         run: ccache -s
       - name: Package
-        if: steps.cache.outputs.cache-hit != 'true'
         run: go run ./cmd/build-naive --targets=${{ matrix.target }} package
       - uses: actions/upload-artifact@v4
         with:
@@ -154,41 +146,37 @@ jobs:
         id: naive
         shell: bash
         run: echo "commit=$(git -C naiveproxy rev-parse HEAD)" >> $GITHUB_OUTPUT
-      - name: Cache package artifacts
-        id: cache
+      - name: Cache build artifacts
+        id: build-cache
         uses: actions/cache@v4
         with:
-          path: |
-            lib/
-            include/
-            include.go
-          key: naive-${{ steps.naive.outputs.commit }}-${{ hashFiles('cmd/build-naive/*.go') }}-windows-${{ matrix.arch }}-v2
+          path: naiveproxy/src/out
+          key: naive-build-${{ steps.naive.outputs.commit }}-${{ hashFiles('cmd/build-naive/cmd_build.go', 'cmd/build-naive/cmd.go') }}-windows-${{ matrix.arch }}
       - id: ccache-timestamp
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.build-cache.outputs.cache-hit != 'true'
         shell: bash
         run: echo "CCACHE_TIMESTAMP=$(date +%s)" >>$GITHUB_OUTPUT
       - name: Cache sccache files
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.build-cache.outputs.cache-hit != 'true'
         uses: actions/cache@v4
         with:
           path: ~/AppData/Local/Mozilla/sccache
           key: sccache-windows-${{ matrix.arch }}-${{ steps.ccache-timestamp.outputs.CCACHE_TIMESTAMP }}
           restore-keys: sccache-windows-${{ matrix.arch }}-
       - name: Install tools
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.build-cache.outputs.cache-hit != 'true'
         run: |
           choco install ninja sccache
       - name: Reset sccache stats
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.build-cache.outputs.cache-hit != 'true'
         run: sccache -z
       - name: Build
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.build-cache.outputs.cache-hit != 'true'
         run: go run ./cmd/build-naive --targets=windows/${{ matrix.arch }} build
       - name: Show sccache stats
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.build-cache.outputs.cache-hit != 'true'
         run: sccache -s
       - name: Package
-        if: steps.cache.outputs.cache-hit != 'true'
         run: go run ./cmd/build-naive --targets=windows/${{ matrix.arch }} package
       - uses: actions/upload-artifact@v4
         with:
@@ -214,39 +202,35 @@ jobs:
       - name: Get naiveproxy commit
         id: naive
         run: echo "commit=$(git -C naiveproxy rev-parse HEAD)" >> $GITHUB_OUTPUT
-      - name: Cache package artifacts
-        id: cache
+      - name: Cache build artifacts
+        id: build-cache
         uses: actions/cache@v4
         with:
-          path: |
-            lib/
-            include/
-            include.go
-          key: naive-${{ steps.naive.outputs.commit }}-${{ hashFiles('cmd/build-naive/*.go') }}-android-${{ matrix.arch }}
+          path: naiveproxy/src/out
+          key: naive-build-${{ steps.naive.outputs.commit }}-${{ hashFiles('cmd/build-naive/cmd_build.go', 'cmd/build-naive/cmd.go') }}-android-${{ matrix.arch }}
       - id: ccache-timestamp
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.build-cache.outputs.cache-hit != 'true'
         run: echo "CCACHE_TIMESTAMP=$(date +%s)" >>$GITHUB_OUTPUT
       - name: Cache ccache files
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.build-cache.outputs.cache-hit != 'true'
         uses: actions/cache@v4
         with:
           path: ~/.cache/ccache
           key: ccache-android-${{ matrix.arch }}-${{ steps.ccache-timestamp.outputs.CCACHE_TIMESTAMP }}
           restore-keys: ccache-android-${{ matrix.arch }}-
       - name: Install packages
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.build-cache.outputs.cache-hit != 'true'
         run: sudo apt update && sudo apt install -y ninja-build ccache
       - name: Reset ccache stats
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.build-cache.outputs.cache-hit != 'true'
         run: ccache -z
       - name: Build
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.build-cache.outputs.cache-hit != 'true'
         run: go run ./cmd/build-naive --targets=android/${{ matrix.arch }} build
       - name: Show ccache stats
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.build-cache.outputs.cache-hit != 'true'
         run: ccache -s
       - name: Package
-        if: steps.cache.outputs.cache-hit != 'true'
         run: go run ./cmd/build-naive --targets=android/${{ matrix.arch }} package
       - uses: actions/upload-artifact@v4
         with:
@@ -288,47 +272,43 @@ jobs:
       - name: Get naiveproxy commit
         id: naive
         run: echo "commit=$(git -C naiveproxy rev-parse HEAD)" >> $GITHUB_OUTPUT
-      - name: Cache package artifacts
-        id: cache
+      - name: Cache build artifacts
+        id: build-cache
         uses: actions/cache@v4
         with:
-          path: |
-            lib/
-            include/
-            include.go
-          key: naive-${{ steps.naive.outputs.commit }}-${{ hashFiles('cmd/build-naive/*.go') }}-linux-musl-${{ matrix.arch }}
+          path: naiveproxy/src/out
+          key: naive-build-${{ steps.naive.outputs.commit }}-${{ hashFiles('cmd/build-naive/cmd_build.go', 'cmd/build-naive/cmd.go') }}-linux-musl-${{ matrix.arch }}
       - id: ccache-timestamp
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.build-cache.outputs.cache-hit != 'true'
         run: echo "CCACHE_TIMESTAMP=$(date +%s)" >>$GITHUB_OUTPUT
       - name: Cache ccache files
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.build-cache.outputs.cache-hit != 'true'
         uses: actions/cache@v4
         with:
           path: ~/.cache/ccache
           key: ccache-linux-musl-${{ matrix.arch }}-${{ steps.ccache-timestamp.outputs.CCACHE_TIMESTAMP }}
           restore-keys: ccache-linux-musl-${{ matrix.arch }}-
       - name: Install packages
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.build-cache.outputs.cache-hit != 'true'
         run: sudo apt update && sudo apt install -y ninja-build zstd ccache
       - name: Reset ccache stats
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.build-cache.outputs.cache-hit != 'true'
         run: ccache -z
       - name: Build
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.build-cache.outputs.cache-hit != 'true'
         run: go run ./cmd/build-naive --targets=linux/${{ matrix.arch }} --libc=musl build
       - name: Show ccache stats
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.build-cache.outputs.cache-hit != 'true'
         run: ccache -s
       - name: Package
-        if: steps.cache.outputs.cache-hit != 'true'
         run: go run ./cmd/build-naive --targets=linux/${{ matrix.arch }} --libc=musl package
       - name: Download clang and sysroot
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.build-cache.outputs.cache-hit != 'true'
         run: |
           sudo apt update && sudo apt install -y zstd
           go run ./cmd/build-naive --targets=linux/${{ matrix.arch }} --libc=musl download-toolchain
       - name: Build test binary
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: steps.build-cache.outputs.cache-hit != 'true'
         run: |
           CLANG=$PWD/naiveproxy/src/third_party/llvm-build/Release+Asserts/bin/clang
           SYSROOT=$PWD/naiveproxy/src/out/sysroot-build/openwrt/23.05.5/${{ matrix.openwrt_arch }}
