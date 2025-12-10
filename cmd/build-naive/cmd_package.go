@@ -113,6 +113,7 @@ func getLibraryDirectoryName(t Target) string {
 type LinkFlags struct {
 	Libs       []string // System libraries (e.g., -ldl, -lpthread)
 	Frameworks []string // macOS/iOS frameworks (e.g., -framework Security)
+	LDFlags    []string // Linker flags (e.g., -Wl,-wrap,realpath)
 }
 
 // extractLinkFlags parses the ninja file for cronet_sample to extract linking parameters
@@ -127,6 +128,7 @@ func extractLinkFlags(outputDirectory string) (LinkFlags, error) {
 	var flags LinkFlags
 	libsRegex := regexp.MustCompile(`^\s*libs\s*=\s*(.*)$`)
 	frameworksRegex := regexp.MustCompile(`^\s*frameworks\s*=\s*(.*)$`)
+	ldflagsRegex := regexp.MustCompile(`^\s*ldflags\s*=\s*(.*)$`)
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -151,6 +153,13 @@ func extractLinkFlags(outputDirectory string) (LinkFlags, error) {
 				flags.Frameworks = parseFrameworks(frameworksStr)
 			}
 		}
+
+		if matches := ldflagsRegex.FindStringSubmatch(line); matches != nil {
+			ldflagsStr := strings.TrimSpace(matches[1])
+			if ldflagsStr != "" {
+				flags.LDFlags = parseLDFlags(ldflagsStr)
+			}
+		}
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -168,6 +177,19 @@ func parseFrameworks(input string) []string {
 		if parts[i] == "-framework" && i+1 < len(parts) {
 			result = append(result, "-framework "+parts[i+1])
 			i++
+		}
+	}
+	return result
+}
+
+// parseLDFlags extracts relevant linker flags from the ldflags string.
+// We specifically extract -Wl,-wrap,* flags needed for Android allocator shim.
+func parseLDFlags(input string) []string {
+	var result []string
+	for _, flag := range strings.Fields(input) {
+		// Extract -Wl,-wrap,* flags needed for Android allocator shim
+		if strings.HasPrefix(flag, "-Wl,-wrap,") {
+			result = append(result, flag)
 		}
 	}
 	return result
@@ -203,7 +225,7 @@ go 1.20
 			log.Fatalf("failed to extract link flags for %s/%s: %v", t.GOOS, t.ARCH, err)
 		}
 
-		log.Printf("Extracted link flags for %s/%s: libs=%v frameworks=%v", t.GOOS, t.ARCH, linkFlags.Libs, linkFlags.Frameworks)
+		log.Printf("Extracted link flags for %s/%s: libs=%v frameworks=%v ldflags=%v", t.GOOS, t.ARCH, linkFlags.Libs, linkFlags.Frameworks, linkFlags.LDFlags)
 
 		// Build tags
 		var buildTag string
@@ -229,10 +251,8 @@ go 1.20
 			ldFlags = append(ldFlags, "-L${SRCDIR}", "-l:libcronet.a")
 		}
 
-		// Add libc++ for C++ runtime on Darwin platforms
-		if t.GOOS == "darwin" || t.GOOS == "ios" {
-			ldFlags = append(ldFlags, "-lc++")
-		}
+		// Add extracted ldflags (e.g., -Wl,-wrap,* for Android)
+		ldFlags = append(ldFlags, linkFlags.LDFlags...)
 
 		// Add extracted libs
 		ldFlags = append(ldFlags, linkFlags.Libs...)
