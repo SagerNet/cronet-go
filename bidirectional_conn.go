@@ -40,7 +40,7 @@ func (e StreamEngine) CreateConn(readWaitHeaders bool, writeWaitHeaders bool, co
 		read:             make(chan int),
 		write:            make(chan struct{}),
 	}
-	conn.stream = e.CreateStream(&bidirectionalHandler{conn})
+	conn.stream = e.CreateStream(&bidirectionalHandler{BidirectionalConn: conn})
 	return conn
 }
 
@@ -229,15 +229,18 @@ func (c *BidirectionalConn) WaitForHeaders() (map[string]string, error) {
 
 type bidirectionalHandler struct {
 	*BidirectionalConn
+	readyOnce     sync.Once
+	handshakeOnce sync.Once
+	doneOnce      sync.Once
 }
 
 func (c *bidirectionalHandler) OnStreamReady(stream BidirectionalStream) {
-	close(c.ready)
+	c.readyOnce.Do(func() { close(c.ready) })
 }
 
 func (c *bidirectionalHandler) OnResponseHeadersReceived(stream BidirectionalStream, headers map[string]string, negotiatedProtocol string) {
 	c.headers = headers
-	close(c.handshake)
+	c.handshakeOnce.Do(func() { close(c.handshake) })
 }
 
 func (c *bidirectionalHandler) OnReadCompleted(stream BidirectionalStream, bytesRead int) {
@@ -294,17 +297,11 @@ func (c *bidirectionalHandler) OnCanceled(stream BidirectionalStream) {
 }
 
 func (c *bidirectionalHandler) Close(stream BidirectionalStream, err error) {
-	c.access.Lock()
-	defer c.access.Unlock()
-
-	select {
-	case <-c.done:
-		return
-	default:
-	}
-
-	c.err = err
-	close(c.done)
-
-	stream.Destroy()
+	c.doneOnce.Do(func() {
+		c.access.Lock()
+		c.err = err
+		close(c.done)
+		c.access.Unlock()
+		stream.Destroy()
+	})
 }
