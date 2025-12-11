@@ -1,3 +1,5 @@
+//go:build !with_purego
+
 package cronet_test
 
 import (

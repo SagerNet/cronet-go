@@ -49,10 +49,10 @@ func publish() {
 	// === Step 1: Push main module + lib submodules ===
 	log.Print("Step 1: Publishing main module and lib submodules...")
 
-	// Copy lib, include directories and include.go
+	// Copy lib, include directories and include_cgo.go
 	copyDirectory(filepath.Join(projectRoot, "lib"), filepath.Join(temporaryDirectory, "lib"))
 	copyDirectory(filepath.Join(projectRoot, "include"), filepath.Join(temporaryDirectory, "include"))
-	copyFile(filepath.Join(projectRoot, "include.go"), filepath.Join(temporaryDirectory, "include.go"))
+	copyFile(filepath.Join(projectRoot, "include_cgo.go"), filepath.Join(temporaryDirectory, "include_cgo.go"))
 
 	// Stage and commit (force add to include .gitignore'd files)
 	runCommand(temporaryDirectory, "git", "add", "-f", "-A")

@@ -1,3 +1,5 @@
+//go:build !with_purego
+
 package cronet
 
 // #include <stdlib.h>
@@ -8,36 +10,58 @@ import "C"
 
 import (
 	"sync"
+	"sync/atomic"
 	"unsafe"
 )
 
-func NewBufferCallback(callbackFunc BufferCallbackFunc) BufferCallback {
-	ptr := C.Cronet_BufferCallback_CreateWith((*[0]byte)(C.cronetBufferCallbackOnDestroy))
-	if callbackFunc != nil {
-		bufferCallbackAccess.Lock()
-		bufferCallbackMap[uintptr(unsafe.Pointer(ptr))] = callbackFunc
-		bufferCallbackAccess.Unlock()
-	}
-	return BufferCallback{ptr}
+type bufferCallbackEntry struct {
+	callback  BufferCallbackFunc
+	destroyed atomic.Bool
 }
 
 var (
 	bufferCallbackAccess sync.RWMutex
-	bufferCallbackMap    map[uintptr]BufferCallbackFunc
+	bufferCallbackMap    map[uintptr]*bufferCallbackEntry
 )
 
 func init() {
-	bufferCallbackMap = make(map[uintptr]BufferCallbackFunc)
+	bufferCallbackMap = make(map[uintptr]*bufferCallbackEntry)
+}
+
+func NewBufferCallback(callbackFunc BufferCallbackFunc) BufferCallback {
+	ptr := C.Cronet_BufferCallback_CreateWith((*[0]byte)(C.cronetBufferCallbackOnDestroy))
+	ptrVal := uintptr(unsafe.Pointer(ptr))
+	if callbackFunc != nil {
+		bufferCallbackAccess.Lock()
+		bufferCallbackMap[ptrVal] = &bufferCallbackEntry{callback: callbackFunc}
+		bufferCallbackAccess.Unlock()
+	}
+	return BufferCallback{ptrVal}
+}
+
+func (c BufferCallback) destroy() {
+	bufferCallbackAccess.RLock()
+	entry := bufferCallbackMap[c.ptr]
+	bufferCallbackAccess.RUnlock()
+	if entry != nil {
+		entry.destroyed.Store(true)
+	}
 }
 
 //export cronetBufferCallbackOnDestroy
 func cronetBufferCallbackOnDestroy(self C.Cronet_BufferCallbackPtr, buffer C.Cronet_BufferPtr) {
 	ptrInt := uintptr(unsafe.Pointer(self))
+	bufferCallbackAccess.RLock()
+	entry := bufferCallbackMap[ptrInt]
+	bufferCallbackAccess.RUnlock()
+	if entry == nil || entry.destroyed.Load() {
+		return // Post-destroy callback, silently ignore
+	}
+	if entry.callback != nil {
+		entry.callback(BufferCallback{ptrInt}, Buffer{uintptr(unsafe.Pointer(buffer))})
+	}
+	// OnDestroy is the cleanup signal - safe to delete
 	bufferCallbackAccess.Lock()
-	callback := bufferCallbackMap[ptrInt]
 	delete(bufferCallbackMap, ptrInt)
 	bufferCallbackAccess.Unlock()
-	if callback != nil {
-		callback(BufferCallback{self}, Buffer{buffer})
-	}
 }

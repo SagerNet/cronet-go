@@ -295,6 +295,12 @@ func buildTarget(t Target) {
 	}
 
 	// Run ninja
-	log.Printf("Running: ninja -C %s cronet_static", outputDirectory)
-	runCommand(srcRoot, "ninja", "-C", outputDirectory, "cronet_static")
+	if t.GOOS == "windows" {
+		// Windows: only build DLL (static linking not supported - Chromium uses MSVC, Go CGO only supports MinGW)
+		log.Printf("Running: ninja -C %s cronet", outputDirectory)
+		runCommand(srcRoot, "ninja", "-C", outputDirectory, "cronet")
+	} else {
+		log.Printf("Running: ninja -C %s cronet_static", outputDirectory)
+		runCommand(srcRoot, "ninja", "-C", outputDirectory, "cronet_static")
+	}
 }

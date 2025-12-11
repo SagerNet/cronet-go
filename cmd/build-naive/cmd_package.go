@@ -52,32 +52,38 @@ func packageTargets(targets []Target) {
 	}
 	log.Print("Copied headers to include/")
 
-	// Copy static libraries for each target
+	// Copy libraries for each target
 	for _, t := range targets {
 		targetDirectory := filepath.Join(libraryDirectory, getLibraryDirectoryName(t))
 		os.MkdirAll(targetDirectory, 0o755)
 
 		outputDirectory := fmt.Sprintf("out/cronet-%s-%s", t.OS, t.CPU)
 
-		// Copy static library
-		var sourceStatic string
 		if t.GOOS == "windows" {
-			sourceStatic = filepath.Join(srcRoot, outputDirectory, "obj/components/cronet/cronet_static.lib")
-		} else {
-			sourceStatic = filepath.Join(srcRoot, outputDirectory, "obj/components/cronet/libcronet_static.a")
-		}
-		destinationStatic := filepath.Join(targetDirectory, "libcronet.a")
-		if _, err := os.Stat(sourceStatic); os.IsNotExist(err) {
-			log.Printf("Warning: static library not found for %s/%s, skipping", t.GOOS, t.ARCH)
-		} else {
-			copyFile(sourceStatic, destinationStatic)
-			if t.Libc == "musl" {
-				log.Printf("Copied static library for %s/%s (musl)", t.GOOS, t.ARCH)
+			// Windows: only copy DLL (static linking not supported - Chromium uses MSVC, Go CGO only supports MinGW)
+			sourceDLL := filepath.Join(srcRoot, outputDirectory, "cronet.dll")
+			destinationDLL := filepath.Join(targetDirectory, "libcronet.dll")
+			if _, err := os.Stat(sourceDLL); os.IsNotExist(err) {
+				log.Printf("Warning: DLL not found for %s/%s, skipping", t.GOOS, t.ARCH)
 			} else {
-				log.Printf("Copied static library for %s/%s", t.GOOS, t.ARCH)
+				copyFile(sourceDLL, destinationDLL)
+				log.Printf("Copied DLL for %s/%s", t.GOOS, t.ARCH)
+			}
+		} else {
+			// Other platforms: copy static library
+			sourceStatic := filepath.Join(srcRoot, outputDirectory, "obj/components/cronet/libcronet_static.a")
+			destinationStatic := filepath.Join(targetDirectory, "libcronet.a")
+			if _, err := os.Stat(sourceStatic); os.IsNotExist(err) {
+				log.Printf("Warning: static library not found for %s/%s, skipping", t.GOOS, t.ARCH)
+			} else {
+				copyFile(sourceStatic, destinationStatic)
+				if t.Libc == "musl" {
+					log.Printf("Copied static library for %s/%s (musl)", t.GOOS, t.ARCH)
+				} else {
+					log.Printf("Copied static library for %s/%s", t.GOOS, t.ARCH)
+				}
 			}
 		}
-
 	}
 
 	// Generate main module cgo.go and submodule files
@@ -88,17 +94,19 @@ func packageTargets(targets []Target) {
 }
 
 func generateCGOConfig() {
-	content := `package cronet
+	content := `//go:build !with_purego
+
+package cronet
 
 // #cgo CFLAGS: -I${SRCDIR}/include
 import "C"
 `
-	path := filepath.Join(projectRoot, "include.go")
+	path := filepath.Join(projectRoot, "include_cgo.go")
 	err := os.WriteFile(path, []byte(content), 0o644)
 	if err != nil {
-		log.Fatalf("failed to write include.go: %v", err)
+		log.Fatalf("failed to write include_cgo.go: %v", err)
 	}
-	log.Print("Generated include.go")
+	log.Print("Generated include_cgo.go")
 }
 
 // getLibraryDirectoryName returns the library directory name for a target
@@ -195,34 +203,6 @@ func parseLDFlags(input string) []string {
 	return result
 }
 
-// convertWindowsLibsToMinGW converts MSVC-style library names to MinGW-style flags.
-// Example: "advapi32.lib" -> "-ladvapi32"
-// It also filters out MSVC-specific CRT libraries that don't exist in MinGW.
-func convertWindowsLibsToMinGW(libs []string) []string {
-	// MSVC CRT libraries that don't exist in MinGW and should be filtered out
-	msvcCRTLibs := map[string]bool{
-		"libcmt":   true, // MSVC static CRT
-		"libcmtd":  true, // MSVC static CRT (debug)
-		"msvcrt":   true, // MSVC dynamic CRT
-		"msvcrtd":  true, // MSVC dynamic CRT (debug)
-		"oldnames": true, // MSVC POSIX compatibility
-	}
-
-	var result []string
-	for _, lib := range libs {
-		if strings.HasSuffix(lib, ".lib") {
-			name := strings.TrimSuffix(lib, ".lib")
-			if msvcCRTLibs[name] {
-				continue
-			}
-			result = append(result, "-l"+name)
-		} else {
-			result = append(result, lib)
-		}
-	}
-	return result
-}
-
 func generateSubmodules(targets []Target) {
 	versionFile := filepath.Join(naiveRoot, "CHROMIUM_VERSION")
 	versionData, err := os.ReadFile(versionFile)
@@ -234,6 +214,7 @@ func generateSubmodules(targets []Target) {
 	for _, t := range targets {
 		directoryName := getLibraryDirectoryName(t)
 		targetDirectory := filepath.Join(projectRoot, "lib", directoryName)
+		packageName := strings.ReplaceAll(directoryName, "-", "_")
 
 		// Generate go.mod
 		goModContent := fmt.Sprintf(`module github.com/sagernet/cronet-go/lib/%s
@@ -244,6 +225,15 @@ go 1.20
 		err := os.WriteFile(goModPath, []byte(goModContent), 0o644)
 		if err != nil {
 			log.Fatalf("failed to write go.mod: %v", err)
+		}
+
+		if t.GOOS == "windows" {
+			// Windows: only generate purego mode files (DLL embed)
+			// Static linking is not supported (Chromium uses MSVC, Go CGO only supports MinGW)
+			generateEmbedFile(targetDirectory, packageName, chromiumVersion)
+			runCommand(targetDirectory, "go", "mod", "tidy")
+			log.Printf("Generated submodule lib/%s (purego only)", directoryName)
+			continue
 		}
 
 		// Extract linking flags from ninja file
@@ -267,11 +257,11 @@ go 1.20
 			buildTag = fmt.Sprintf("%s && %s", t.GOOS, t.ARCH)
 		}
 
-		// Build LDFLAGS from extracted values
+		// Generate libcronet_cgo.go with CGO config
 		var ldFlags []string
 
 		// Add static library reference
-		if t.GOOS == "darwin" || t.GOOS == "ios" || t.GOOS == "windows" {
+		if t.GOOS == "darwin" || t.GOOS == "ios" {
 			ldFlags = append(ldFlags, "${SRCDIR}/libcronet.a")
 		} else {
 			ldFlags = append(ldFlags, "-L${SRCDIR}", "-l:libcronet.a")
@@ -280,21 +270,12 @@ go 1.20
 		// Add extracted ldflags (e.g., -Wl,-wrap,* for Android)
 		ldFlags = append(ldFlags, linkFlags.LDFlags...)
 
-		// Add extracted libs (convert to MinGW format for Windows)
-		if t.GOOS == "windows" {
-			ldFlags = append(ldFlags, convertWindowsLibsToMinGW(linkFlags.Libs)...)
-			// Tell LLD to ignore MSVC /DEFAULTLIB directives embedded in .lib files.
-			// Requires CGO_LDFLAGS_ALLOW="-Xlink.*" in downstream builds.
-			ldFlags = append(ldFlags, "-Wl,-Xlink=/nodefaultlib:libcmt", "-Wl,-Xlink=/nodefaultlib:oldnames")
-		} else {
-			ldFlags = append(ldFlags, linkFlags.Libs...)
-		}
+		// Add extracted libs
+		ldFlags = append(ldFlags, linkFlags.Libs...)
 
 		// Add extracted frameworks
 		ldFlags = append(ldFlags, linkFlags.Frameworks...)
 
-		// Generate cgo.go (only LDFLAGS, CFLAGS is in main module)
-		packageName := strings.ReplaceAll(directoryName, "-", "_")
 		cgoContent := fmt.Sprintf(`//go:build %s
 
 package %s
@@ -305,10 +286,10 @@ import "C"
 const Version = "%s"
 `, buildTag, packageName, strings.Join(ldFlags, " "), chromiumVersion)
 
-		cgoPath := filepath.Join(targetDirectory, "cgo.go")
+		cgoPath := filepath.Join(targetDirectory, "libcronet_cgo.go")
 		err = os.WriteFile(cgoPath, []byte(cgoContent), 0o644)
 		if err != nil {
-			log.Fatalf("failed to write cgo.go: %v", err)
+			log.Fatalf("failed to write libcronet_cgo.go: %v", err)
 		}
 
 		// Run go mod tidy
@@ -316,4 +297,29 @@ const Version = "%s"
 
 		log.Printf("Generated submodule lib/%s", directoryName)
 	}
+}
+
+// generateEmbedFile generates libcronet.go for Windows targets.
+// This allows the DLL to be embedded in the binary for purego mode.
+func generateEmbedFile(targetDirectory, packageName, chromiumVersion string) {
+	content := fmt.Sprintf(`//go:build with_purego
+
+package %s
+
+import (
+	_ "embed"
+)
+
+//go:embed libcronet.dll
+var EmbeddedDLL []byte
+
+const EmbeddedVersion = "%s"
+`, packageName, chromiumVersion)
+
+	embedPath := filepath.Join(targetDirectory, "libcronet.go")
+	err := os.WriteFile(embedPath, []byte(content), 0o644)
+	if err != nil {
+		log.Fatalf("failed to write libcronet.go: %v", err)
+	}
+	log.Printf("Generated libcronet.go for %s", packageName)
 }
