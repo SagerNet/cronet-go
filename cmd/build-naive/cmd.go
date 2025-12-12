@@ -56,7 +56,7 @@ var mainCommand = &cobra.Command{
 func init() {
 	log.SetFlags(0)
 	log.SetPrefix("[build] ")
-	mainCommand.PersistentFlags().StringVarP(&targetStr, "targets", "t", "", "Comma-separated list of targets (e.g., linux/amd64,darwin/arm64). Empty means host only.")
+	mainCommand.PersistentFlags().StringVarP(&targetStr, "target", "t", "", "Comma-separated list of targets (e.g., linux/amd64,darwin/arm64). Empty means host only.")
 	mainCommand.PersistentFlags().StringVar(&libcStr, "libc", "", "C library for Linux: glibc (default) or musl")
 }
 
@@ -225,6 +225,35 @@ func copyDirectory(source, destination string) {
 		destinationPath := filepath.Join(destination, entry.Name())
 		if entry.IsDir() {
 			copyDirectory(sourcePath, destinationPath)
+		} else {
+			copyFile(sourcePath, destinationPath)
+		}
+	}
+}
+
+func copyDirectoryExclude(source, destination string, excludePatterns []string) {
+	os.MkdirAll(destination, 0o755)
+	entries, err := os.ReadDir(source)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		sourcePath := filepath.Join(source, entry.Name())
+		destinationPath := filepath.Join(destination, entry.Name())
+
+		shouldExclude := false
+		for _, pattern := range excludePatterns {
+			if matched, _ := filepath.Match(pattern, entry.Name()); matched {
+				shouldExclude = true
+				break
+			}
+		}
+		if shouldExclude {
+			continue
+		}
+
+		if entry.IsDir() {
+			copyDirectoryExclude(sourcePath, destinationPath, excludePatterns)
 		} else {
 			copyFile(sourcePath, destinationPath)
 		}
