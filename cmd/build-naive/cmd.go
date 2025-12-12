@@ -231,6 +231,35 @@ func copyDirectory(source, destination string) {
 	}
 }
 
+func copyDirectoryExclude(source, destination string, excludePatterns []string) {
+	os.MkdirAll(destination, 0o755)
+	entries, err := os.ReadDir(source)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		sourcePath := filepath.Join(source, entry.Name())
+		destinationPath := filepath.Join(destination, entry.Name())
+
+		shouldExclude := false
+		for _, pattern := range excludePatterns {
+			if matched, _ := filepath.Match(pattern, entry.Name()); matched {
+				shouldExclude = true
+				break
+			}
+		}
+		if shouldExclude {
+			continue
+		}
+
+		if entry.IsDir() {
+			copyDirectoryExclude(sourcePath, destinationPath, excludePatterns)
+		} else {
+			copyFile(sourcePath, destinationPath)
+		}
+	}
+}
+
 func copyGlob(sourceDirectory, destinationDirectory, pattern string) {
 	matches, _ := filepath.Glob(filepath.Join(sourceDirectory, pattern))
 	for _, source := range matches {

@@ -3,10 +3,10 @@ name: Build
 on:
   workflow_dispatch:
     inputs:
-      release:
-        description: 'Publish to go-release branch'
-        type: boolean
-        default: false
+      version:
+        description: 'Release version (e.g., v1.0.0). Creates GitHub Release draft when provided.'
+        type: string
+        required: false
   push:
     branches: [main]
 
@@ -112,6 +112,22 @@ jobs:
             export QEMU_LD_PREFIX=$PWD/naiveproxy/src/out/sysroot-build/bullseye/bullseye_${{ matrix.sysroot_arch }}_staging
           fi
           ./cronet.test -test.v -test.run=TestEngineVersion
+      - name: Build purego test binary
+        if: matrix.arch == 'amd64' || matrix.arch == 'arm64'
+        run: |
+          cp lib/linux_${{ matrix.arch }}/libcronet.so .
+          CGO_ENABLED=0 \
+          GOOS=linux \
+          GOARCH=${{ matrix.arch }} \
+          go test -tags with_purego -c -o cronet.purego.test .
+      - name: Run purego test binary
+        if: matrix.arch == 'amd64' || matrix.arch == 'arm64'
+        run: |
+          if [ "${{ matrix.arch }}" != "amd64" ]; then
+            export QEMU_LD_PREFIX=$PWD/naiveproxy/src/out/sysroot-build/bullseye/bullseye_${{ matrix.sysroot_arch }}_staging
+          fi
+          export LD_LIBRARY_PATH=$PWD
+          ./cronet.purego.test -test.v -test.run=TestEngineVersion
       - uses: actions/upload-artifact@v4
         with:
           name: cronet-linux-${{ matrix.arch }}
@@ -121,6 +137,7 @@ jobs:
             include_cgo.go
 
   darwin:
+    if: github.event_name == 'push'
     runs-on: macos-15
     strategy:
       fail-fast: false
@@ -190,6 +207,7 @@ jobs:
             include_cgo.go
 
   windows:
+    if: github.event_name == 'push'
     runs-on: windows-2022
     strategy:
       fail-fast: false
@@ -258,6 +276,7 @@ jobs:
             include_cgo.go
 
   android:
+    if: github.event_name == 'push'
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
@@ -341,6 +360,7 @@ jobs:
             include_cgo.go
 
   linux-musl:
+    if: github.event_name == 'push'
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
@@ -455,6 +475,7 @@ jobs:
             include_cgo.go
 
   publish:
+    if: github.event_name == 'push'
     needs: [linux, linux-musl, darwin, windows, android]
     runs-on: ubuntu-22.04
     steps:
@@ -482,9 +503,59 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Publish
+        run: go run ./cmd/build-naive publish --branch go
+
+  release:
+    needs: [linux]
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: cronet-linux-*
+          path: artifacts/
+          merge-multiple: false
+
+      - name: Get Chromium version
+        id: chromium
         run: |
-          if [ "${{ github.event.inputs.release }}" = "true" ]; then
-            go run ./cmd/build-naive publish --branch go-release
+          VERSION=$(grep -h 'const Version' artifacts/cronet-linux-amd64/lib/linux_amd64/libcronet_cgo.go | sed 's/.*"\(.*\)".*/\1/')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+          for dir in artifacts/cronet-linux-*/lib/linux_*; do
+            if [[ "$dir" != *_musl ]]; then
+              ARCH=$(basename "$dir" | sed 's/linux_//')
+              if [ -f "$dir/libcronet.so" ]; then
+                cp "$dir/libcronet.so" "release/libcronet-linux-${ARCH}.so"
+              fi
+            fi
+          done
+          ls -la release/
+
+      - name: Create or update release draft
+        if: github.event.inputs.version != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          CHROMIUM_VERSION="${{ steps.chromium.outputs.version }}"
+
+          # Check if release exists
+          if gh release view "$VERSION" &>/dev/null; then
+            echo "Release $VERSION exists, uploading assets..."
           else
-            go run ./cmd/build-naive publish --branch go
+            echo "Creating release draft $VERSION..."
+            gh release create "$VERSION" \
+              --draft \
+              --title "$VERSION" \
+              --notes "Cronet Go binding release based on Chromium $CHROMIUM_VERSION"
           fi
+
+          # Upload assets
+          gh release upload "$VERSION" release/*.so --clobber

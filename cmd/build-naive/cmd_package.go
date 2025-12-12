@@ -83,6 +83,16 @@ func packageTargets(targets []Target) {
 					log.Printf("Copied static library for %s/%s", t.GOOS, t.ARCH)
 				}
 			}
+
+			// For Linux glibc, also copy shared library (for testing and release, not for go module)
+			if t.GOOS == "linux" && t.Libc != "musl" {
+				sourceShared := filepath.Join(srcRoot, outputDirectory, "libcronet.so")
+				destinationShared := filepath.Join(targetDirectory, "libcronet.so")
+				if _, err := os.Stat(sourceShared); err == nil {
+					copyFile(sourceShared, destinationShared)
+					log.Printf("Copied shared library for %s/%s", t.GOOS, t.ARCH)
+				}
+			}
 		}
 	}
 

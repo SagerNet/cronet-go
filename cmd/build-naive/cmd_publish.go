@@ -50,7 +50,8 @@ func publish() {
 	log.Print("Step 1: Publishing main module and lib submodules...")
 
 	// Copy lib, include directories and include_cgo.go
-	copyDirectory(filepath.Join(projectRoot, "lib"), filepath.Join(temporaryDirectory, "lib"))
+	// Exclude shared libraries (.so) - they are for testing/release only, not for go module
+	copyDirectoryExclude(filepath.Join(projectRoot, "lib"), filepath.Join(temporaryDirectory, "lib"), []string{"*.so"})
 	copyDirectory(filepath.Join(projectRoot, "include"), filepath.Join(temporaryDirectory, "include"))
 	copyFile(filepath.Join(projectRoot, "include_cgo.go"), filepath.Join(temporaryDirectory, "include_cgo.go"))
 
