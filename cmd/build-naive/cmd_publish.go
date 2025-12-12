@@ -60,7 +60,7 @@ func publish() {
 	runCommand(temporaryDirectory, "git", "commit", "-m", commitMessage)
 
 	// Force push to target branch
-	runCommand(temporaryDirectory, "git", "push", "-f", "origin", "HEAD:"+publishBranch)
+	runCommand(temporaryDirectory, "git", "push", "-f", "origin", "HEAD:refs/heads/"+publishBranch)
 
 	// Get the commit hash and time of the first push
 	firstCommit := strings.TrimSpace(runCommandOutput(temporaryDirectory, "git", "rev-parse", "HEAD"))

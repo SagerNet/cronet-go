@@ -56,7 +56,7 @@ var mainCommand = &cobra.Command{
 func init() {
 	log.SetFlags(0)
 	log.SetPrefix("[build] ")
-	mainCommand.PersistentFlags().StringVarP(&targetStr, "targets", "t", "", "Comma-separated list of targets (e.g., linux/amd64,darwin/arm64). Empty means host only.")
+	mainCommand.PersistentFlags().StringVarP(&targetStr, "target", "t", "", "Comma-separated list of targets (e.g., linux/amd64,darwin/arm64). Empty means host only.")
 	mainCommand.PersistentFlags().StringVar(&libcStr, "libc", "", "C library for Linux: glibc (default) or musl")
 }
 

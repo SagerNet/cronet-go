@@ -53,5 +53,17 @@ func printCGOFlags(t Target) {
 	// Add extracted frameworks
 	ldFlags = append(ldFlags, linkFlags.Frameworks...)
 
+	// Add Linux-specific flags
+	if t.GOOS == "linux" {
+		ldFlags = append(ldFlags, "-fuse-ld=lld")
+		// Add -no-pie for 32-bit (required for position-dependent code)
+		if t.ARCH == "386" || t.ARCH == "arm" {
+			ldFlags = append(ldFlags, "-no-pie")
+		}
+		if t.Libc == "musl" {
+			ldFlags = append(ldFlags, "-static")
+		}
+	}
+
 	fmt.Println(strings.Join(ldFlags, " "))
 }

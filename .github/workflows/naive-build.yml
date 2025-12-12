@@ -63,18 +63,18 @@ jobs:
         if: steps.build-cache.outputs.cache-hit != 'true'
         run: |
           sudo apt update
-          sudo apt install -y ninja-build ccache qemu-user-binfmt
+          sudo apt install -y ninja-build ccache
       - name: Reset ccache stats
         if: steps.build-cache.outputs.cache-hit != 'true'
         run: ccache -z
       - name: Build
         if: steps.build-cache.outputs.cache-hit != 'true'
-        run: go run ./cmd/build-naive --targets=linux/${{ matrix.arch }} build
+        run: go run ./cmd/build-naive --target=linux/${{ matrix.arch }} build
       - name: Show ccache stats
         if: steps.build-cache.outputs.cache-hit != 'true'
         run: ccache -s
       - name: Package
-        run: go run ./cmd/build-naive --targets=linux/${{ matrix.arch }} package
+        run: go run ./cmd/build-naive --target=linux/${{ matrix.arch }} package
       - name: Cache toolchain
         uses: actions/cache@v4
         with:
@@ -84,16 +84,15 @@ jobs:
             naiveproxy/src/chrome/build/pgo_profiles
           key: toolchain-linux-${{ steps.chromium.outputs.version }}
       - name: Download clang and sysroot
-        run: go run ./cmd/build-naive --targets=linux/${{ matrix.arch }} download-toolchain
+        run: go run ./cmd/build-naive --target=linux/${{ matrix.arch }} download-toolchain
       - name: Install QEMU for cross-platform testing
-        if: matrix.arch != 'amd64'
         run: |
           sudo apt update
           sudo apt install -y qemu-user-binfmt
       - name: Get CGO flags
         id: cgo-flags
         run: |
-          CGO_FLAGS=$(go run ./cmd/build-naive --targets=linux/${{ matrix.arch }} cgo-flags)
+          CGO_FLAGS=$(go run ./cmd/build-naive --target=linux/${{ matrix.arch }} cgo-flags)
           echo "CGO_FLAGS: $CGO_FLAGS"
           echo "flags=$CGO_FLAGS" >> $GITHUB_OUTPUT
       - name: Build test binary
@@ -103,7 +102,7 @@ jobs:
           CC="$CLANG --target=${{ matrix.clang_target }} --sysroot=$SYSROOT" \
           CXX="$CLANG++ --target=${{ matrix.clang_target }} --sysroot=$SYSROOT" \
           CGO_ENABLED=1 \
-          CGO_LDFLAGS="${{ steps.cgo-flags.outputs.flags }} -fuse-ld=lld -no-pie" \
+          CGO_LDFLAGS="${{ steps.cgo-flags.outputs.flags }}" \
           GOOS=linux \
           GOARCH=${{ matrix.arch }} \
           go test -c -o cronet.test .
@@ -167,17 +166,17 @@ jobs:
         run: ccache -z
       - name: Build
         if: steps.build-cache.outputs.cache-hit != 'true'
-        run: go run ./cmd/build-naive --targets=${{ matrix.target }} build
+        run: go run ./cmd/build-naive --target=${{ matrix.target }} build
       - name: Show ccache stats
         if: steps.build-cache.outputs.cache-hit != 'true'
         run: ccache -s
       - name: Package
-        run: go run ./cmd/build-naive --targets=${{ matrix.target }} package
+        run: go run ./cmd/build-naive --target=${{ matrix.target }} package
       - name: Build and run test binary
         if: matrix.target != 'ios/arm64'
         run: |
           CGO_ENABLED=1 \
-          CGO_LDFLAGS="$(go run ./cmd/build-naive --targets=${{ matrix.target }} cgo-flags)" \
+          CGO_LDFLAGS="$(go run ./cmd/build-naive --target=${{ matrix.target }} cgo-flags)" \
           GOOS=$(echo "${{ matrix.target }}" | cut -d/ -f1) \
           GOARCH=$(echo "${{ matrix.target }}" | cut -d/ -f2) \
           go test -c -o cronet.test .
@@ -216,7 +215,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: naiveproxy/src/out
-          key: naive-build-${{ steps.naive.outputs.commit }}-${{ hashFiles('cmd/build-naive/cmd_build.go', 'cmd/build-naive/cmd.go', 'naiveproxy/src/components/grpc_support/BUILD.gn') }}-windows-${{ matrix.arch }}
+          key: naive-build-${{ steps.naive.outputs.commit }}-${{ hashFiles('cmd/build-naive/cmd_build.go', 'cmd/build-naive/cmd.go') }}-windows-${{ matrix.arch }}
       - name: Cache sccache files
         if: steps.build-cache.outputs.cache-hit != 'true'
         uses: actions/cache@v4
@@ -233,12 +232,12 @@ jobs:
         run: sccache -z
       - name: Build
         if: steps.build-cache.outputs.cache-hit != 'true'
-        run: go run ./cmd/build-naive --targets=windows/${{ matrix.arch }} build
+        run: go run ./cmd/build-naive --target=windows/${{ matrix.arch }} build
       - name: Show sccache stats
         if: steps.build-cache.outputs.cache-hit != 'true'
         run: sccache -s
       - name: Package
-        run: go run ./cmd/build-naive --targets=windows/${{ matrix.arch }} package
+        run: go run ./cmd/build-naive --target=windows/${{ matrix.arch }} package
       - name: Build and run test binary
         if: matrix.arch != 'arm64'
         shell: bash
@@ -265,13 +264,13 @@ jobs:
       matrix:
         include:
           - arch: arm64
-            ndk_triple: aarch64-linux-android
+            cc: aarch64-linux-android21-clang
           - arch: amd64
-            ndk_triple: x86_64-linux-android
+            cc: x86_64-linux-android21-clang
           - arch: arm
-            ndk_triple: armv7a-linux-androideabi
+            cc: armv7a-linux-androideabi21-clang
           - arch: "386"
-            ndk_triple: i686-linux-android
+            cc: i686-linux-android21-clang
     steps:
       - uses: actions/checkout@v4
         with:
@@ -302,19 +301,37 @@ jobs:
         if: steps.build-cache.outputs.cache-hit != 'true'
         run: |
           sudo apt update
-          sudo apt install -y ninja-build ccache qemu-user-binfmt
+          sudo apt install -y ninja-build ccache
       - name: Reset ccache stats
         if: steps.build-cache.outputs.cache-hit != 'true'
         run: ccache -z
       - name: Build
         if: steps.build-cache.outputs.cache-hit != 'true'
-        run: go run ./cmd/build-naive --targets=android/${{ matrix.arch }} build
+        run: go run ./cmd/build-naive --target=android/${{ matrix.arch }} build
       - name: Show ccache stats
         if: steps.build-cache.outputs.cache-hit != 'true'
         run: ccache -s
       - name: Package
-        run: go run ./cmd/build-naive --targets=android/${{ matrix.arch }} package
-      # Skip tests for Android - running Android binaries on Linux requires Android emulator
+        run: go run ./cmd/build-naive --target=android/${{ matrix.arch }} package
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: r28
+      - name: Get CGO flags
+        id: cgo-flags
+        run: |
+          CGO_FLAGS=$(go run ./cmd/build-naive --target=android/${{ matrix.arch }} cgo-flags)
+          echo "CGO_FLAGS: $CGO_FLAGS"
+          echo "flags=$CGO_FLAGS" >> $GITHUB_OUTPUT
+      - name: Build test binary
+        run: |
+          CC=${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/${{ matrix.cc }} \
+          CGO_ENABLED=1 \
+          CGO_LDFLAGS="${{ steps.cgo-flags.outputs.flags }}" \
+          GOOS=android \
+          GOARCH=${{ matrix.arch }} \
+          go test -c -o cronet.test .
       - uses: actions/upload-artifact@v4
         with:
           name: cronet-android-${{ matrix.arch }}
@@ -381,12 +398,12 @@ jobs:
         run: ccache -z
       - name: Build
         if: steps.build-cache.outputs.cache-hit != 'true'
-        run: go run ./cmd/build-naive --targets=linux/${{ matrix.arch }} --libc=musl build
+        run: go run ./cmd/build-naive --target=linux/${{ matrix.arch }} --libc=musl build
       - name: Show ccache stats
         if: steps.build-cache.outputs.cache-hit != 'true'
         run: ccache -s
       - name: Package
-        run: go run ./cmd/build-naive --targets=linux/${{ matrix.arch }} --libc=musl package
+        run: go run ./cmd/build-naive --target=linux/${{ matrix.arch }} --libc=musl package
       - name: Cache toolchain
         uses: actions/cache@v4
         with:
@@ -396,7 +413,7 @@ jobs:
             naiveproxy/src/chrome/build/pgo_profiles
           key: toolchain-linux-${{ steps.chromium.outputs.version }}
       - name: Download toolchain
-        run: go run ./cmd/build-naive --targets=linux/${{ matrix.arch }} --libc=musl download-toolchain
+        run: go run ./cmd/build-naive --target=linux/${{ matrix.arch }} --libc=musl download-toolchain
       - name: Install QEMU for cross-platform testing
         run: |
           sudo apt update
@@ -404,7 +421,7 @@ jobs:
       - name: Get CGO flags
         id: cgo-flags
         run: |
-          CGO_FLAGS=$(go run ./cmd/build-naive --targets=linux/${{ matrix.arch }} --libc=musl cgo-flags)
+          CGO_FLAGS=$(go run ./cmd/build-naive --target=linux/${{ matrix.arch }} --libc=musl cgo-flags)
           echo "CGO_FLAGS: $CGO_FLAGS"
           echo "flags=$CGO_FLAGS" >> $GITHUB_OUTPUT
       - name: Build test binary
@@ -414,10 +431,10 @@ jobs:
           CC="$CLANG --target=${{ matrix.clang_target }} --sysroot=$SYSROOT" \
           CXX="$CLANG++ --target=${{ matrix.clang_target }} --sysroot=$SYSROOT" \
           CGO_ENABLED=1 \
-          CGO_LDFLAGS="${{ steps.cgo-flags.outputs.flags }} -fuse-ld=lld -static" \
+          CGO_LDFLAGS="${{ steps.cgo-flags.outputs.flags }}" \
           GOOS=linux \
           GOARCH=${{ matrix.arch }} \
-          go test -c -o cronet.test -ldflags '-linkmode=external' .
+          go test -c -o cronet.test .
       - name: Run test binary
         continue-on-error: true  # musl/QEMU test is flaky, don't block CI
         run: |
