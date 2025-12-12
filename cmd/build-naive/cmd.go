@@ -15,11 +15,13 @@ import (
 
 // Target represents a build target platform
 type Target struct {
-	OS   string // gn target_os: linux, mac, win, android, ios, openwrt
-	CPU  string // gn target_cpu: x64, arm64, x86, arm
-	GOOS string // Go GOOS
-	ARCH string // Go GOARCH
-	Libc string // C library: "" (default), "glibc", or "musl" (Linux only)
+	OS          string // gn target_os: linux, mac, win, android, ios, openwrt
+	CPU         string // gn target_cpu: x64, arm64, x86, arm
+	GOOS        string // Go GOOS
+	ARCH        string // Go GOARCH
+	Libc        string // C library: "" (default), "glibc", or "musl" (Linux only)
+	Platform    string // Apple: "iphoneos", "tvos" (GN target_platform)
+	Environment string // Apple: "device", "simulator" (GN target_environment)
 }
 
 var allTargets = []Target{
@@ -32,7 +34,15 @@ var allTargets = []Target{
 	{OS: "win", CPU: "x64", GOOS: "windows", ARCH: "amd64"},
 	{OS: "win", CPU: "arm64", GOOS: "windows", ARCH: "arm64"},
 	{OS: "win", CPU: "x86", GOOS: "windows", ARCH: "386"},
-	{OS: "ios", CPU: "arm64", GOOS: "ios", ARCH: "arm64"},
+	// iOS
+	{OS: "ios", CPU: "arm64", GOOS: "ios", ARCH: "arm64", Platform: "iphoneos", Environment: "device"},
+	{OS: "ios", CPU: "arm64", GOOS: "ios", ARCH: "arm64", Platform: "iphoneos", Environment: "simulator"},
+	{OS: "ios", CPU: "x64", GOOS: "ios", ARCH: "amd64", Platform: "iphoneos", Environment: "simulator"},
+	// tvOS
+	{OS: "ios", CPU: "arm64", GOOS: "ios", ARCH: "arm64", Platform: "tvos", Environment: "device"},
+	{OS: "ios", CPU: "arm64", GOOS: "ios", ARCH: "arm64", Platform: "tvos", Environment: "simulator"},
+	{OS: "ios", CPU: "x64", GOOS: "ios", ARCH: "amd64", Platform: "tvos", Environment: "simulator"},
+	// Android
 	{OS: "android", CPU: "arm64", GOOS: "android", ARCH: "arm64"},
 	{OS: "android", CPU: "x64", GOOS: "android", ARCH: "amd64"},
 	{OS: "android", CPU: "arm", GOOS: "android", ARCH: "arm"},
@@ -113,13 +123,26 @@ func parseTargets() []Target {
 	for _, part := range strings.Split(targetStr, ",") {
 		part = strings.TrimSpace(part)
 		parts := strings.Split(part, "/")
+		if len(parts) < 2 || len(parts) > 3 {
+			log.Fatalf("invalid target format: %s (expected os/arch or os/arch/variant)", part)
+		}
+		goos, goarch := parts[0], parts[1]
+
+		// Handle iOS and tvOS targets with optional simulator suffix
+		if goos == "ios" || goos == "tvos" {
+			target := parseAppleTarget(goos, goarch, parts)
+			targets = append(targets, target)
+			continue
+		}
+
+		// Standard targets
 		if len(parts) != 2 {
 			log.Fatalf("invalid target format: %s (expected os/arch)", part)
 		}
-		goos, goarch := parts[0], parts[1]
+
 		found := false
 		for _, t := range allTargets {
-			if t.GOOS == goos && t.ARCH == goarch {
+			if t.GOOS == goos && t.ARCH == goarch && t.Platform == "" {
 				target := applyLibc(t)
 				targets = append(targets, target)
 				found = true
@@ -131,6 +154,41 @@ func parseTargets() []Target {
 		}
 	}
 	return targets
+}
+
+// parseAppleTarget parses iOS/tvOS target strings
+// Formats:
+//   - ios/arm64 -> iOS device arm64
+//   - ios/arm64/simulator -> iOS simulator arm64
+//   - ios/amd64 -> iOS simulator amd64 (only simulator supports amd64)
+//   - tvos/arm64 -> tvOS device arm64
+//   - tvos/arm64/simulator -> tvOS simulator arm64
+//   - tvos/amd64 -> tvOS simulator amd64
+func parseAppleTarget(goos, goarch string, parts []string) Target {
+	isTvOS := goos == "tvos"
+	platform := "iphoneos"
+	if isTvOS {
+		platform = "tvos"
+	}
+
+	// Determine environment
+	environment := "device"
+	if len(parts) == 3 && parts[2] == "simulator" {
+		environment = "simulator"
+	} else if goarch == "amd64" {
+		// amd64 is only available for simulator
+		environment = "simulator"
+	}
+
+	// Find matching target
+	for _, t := range allTargets {
+		if t.GOOS == "ios" && t.ARCH == goarch && t.Platform == platform && t.Environment == environment {
+			return t
+		}
+	}
+
+	log.Fatalf("unsupported target: %s/%s", goos, goarch)
+	return Target{}
 }
 
 // applyLibc applies the --libc flag to a target

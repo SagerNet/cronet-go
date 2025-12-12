@@ -25,15 +25,43 @@ func init() {
 	mainCommand.AddCommand(commandBuild)
 }
 
+// formatTargetLog returns a human-readable log string for a target
+func formatTargetLog(t Target) string {
+	if t.Platform != "" {
+		// Apple platform with Platform/Environment
+		platformName := "iOS"
+		if t.Platform == "tvos" {
+			platformName = "tvOS"
+		}
+		if t.Environment == "simulator" {
+			return fmt.Sprintf("%s Simulator %s", platformName, t.ARCH)
+		}
+		return fmt.Sprintf("%s %s", platformName, t.ARCH)
+	}
+	if t.Libc == "musl" {
+		return fmt.Sprintf("%s/%s (musl)", t.GOOS, t.ARCH)
+	}
+	return fmt.Sprintf("%s/%s", t.GOOS, t.ARCH)
+}
+
+// getOutputDirectory returns the GN output directory for a target
+func getOutputDirectory(t Target) string {
+	if t.Platform != "" {
+		// Apple platform: out/cronet-{platform}-{cpu}[-simulator]
+		directory := fmt.Sprintf("out/cronet-%s-%s", t.Platform, t.CPU)
+		if t.Environment == "simulator" {
+			directory += "-simulator"
+		}
+		return directory
+	}
+	return fmt.Sprintf("out/cronet-%s-%s", t.OS, t.CPU)
+}
+
 func build(targets []Target) {
 	log.Printf("Building cronet_static for %d target(s)", len(targets))
 
 	for _, t := range targets {
-		if t.Libc == "musl" {
-			log.Printf("Building %s/%s (musl)...", t.GOOS, t.ARCH)
-		} else {
-			log.Printf("Building %s/%s...", t.GOOS, t.ARCH)
-		}
+		log.Printf("Building %s...", formatTargetLog(t))
 		buildTarget(t)
 	}
 
@@ -171,7 +199,7 @@ func buildTarget(t Target) {
 	// Run get-clang.sh to ensure toolchain is available
 	runGetClang(t)
 
-	outputDirectory := fmt.Sprintf("out/cronet-%s-%s", t.OS, t.CPU)
+	outputDirectory := getOutputDirectory(t)
 
 	// Prepare GN args
 	args := []string{
@@ -250,10 +278,19 @@ func buildTarget(t Target) {
 			"android_ndk_major_version=28",
 		)
 	case "ios":
+		platform := t.Platform
+		if platform == "" {
+			platform = "iphoneos"
+		}
+		environment := t.Environment
+		if environment == "" {
+			environment = "device"
+		}
 		args = append(args,
 			"use_sysroot=false",
 			"ios_enable_code_signing=false",
-			`target_environment="device"`,
+			fmt.Sprintf(`target_platform="%s"`, platform),
+			fmt.Sprintf(`target_environment="%s"`, environment),
 			`ios_deployment_target="15.0"`,
 		)
 	}

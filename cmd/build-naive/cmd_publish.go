@@ -183,9 +183,10 @@ import (
 	}
 }
 
-// getBuildTagForTarget returns the build tag for a given target directory name
+// getBuildTagForTarget returns the build tag for a given target directory name.
+// Directory names follow the pattern: {platform}_{goarch}[_simulator][_musl]
+// where platform is goos (linux, darwin, windows, android) or tvos/ios for Apple platforms.
 func getBuildTagForTarget(targetName string) string {
-	// Parse target name: {goos}_{goarch} or {goos}_{goarch}_musl
 	parts := strings.Split(targetName, "_")
 	if len(parts) < 2 {
 		log.Fatalf("invalid target name: %s", targetName)
@@ -193,24 +194,61 @@ func getBuildTagForTarget(targetName string) string {
 
 	goos := parts[0]
 	goarch := parts[1]
-	isMusl := len(parts) >= 3 && parts[2] == "musl"
 
-	// Handle special arch names
-	switch goarch {
-	case "amd64", "arm64", "arm":
-		// Keep as is
-	case "386":
-		// Keep as is
+	// Check for special suffixes
+	isSimulator := false
+	isMusl := false
+	isTvOS := false
+
+	for i := 2; i < len(parts); i++ {
+		switch parts[i] {
+		case "simulator":
+			isSimulator = true
+		case "musl":
+			isMusl = true
+		}
 	}
 
+	// Handle tvOS: directory prefix is "tvos" but GOOS is "ios"
+	if goos == "tvos" {
+		isTvOS = true
+		goos = "ios"
+	}
+
+	// Handle iOS/tvOS with gomobile-compatible tags
+	if goos == "ios" {
+		tagParts := []string{"ios", goarch}
+
+		if isTvOS {
+			tagParts = append(tagParts, "tvos")
+			if isSimulator {
+				tagParts = append(tagParts, "tvossimulator")
+			} else {
+				tagParts = append(tagParts, "!tvossimulator")
+			}
+		} else {
+			tagParts = append(tagParts, "!tvos")
+			if isSimulator {
+				tagParts = append(tagParts, "iossimulator")
+			} else {
+				tagParts = append(tagParts, "!iossimulator")
+			}
+		}
+
+		return strings.Join(tagParts, " && ")
+	}
+
+	// Handle musl
 	if isMusl {
 		return fmt.Sprintf("%s && !android && %s && with_musl", goos, goarch)
 	}
 
+	// Handle Linux glibc
 	if goos == "linux" {
 		return fmt.Sprintf("%s && !android && %s && !with_musl", goos, goarch)
 	}
 
+	// Handle macOS
 	if goos == "darwin" {
 		return fmt.Sprintf("%s && !ios && %s", goos, goarch)
 	}

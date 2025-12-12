@@ -147,8 +147,20 @@ jobs:
             name: darwin-amd64
           - target: darwin/arm64
             name: darwin-arm64
+          # iOS
           - target: ios/arm64
             name: ios-arm64
+          - target: ios/arm64/simulator
+            name: ios-arm64-simulator
+          - target: ios/amd64
+            name: ios-amd64-simulator
+          # tvOS
+          - target: tvos/arm64
+            name: tvos-arm64
+          - target: tvos/arm64/simulator
+            name: tvos-arm64-simulator
+          - target: tvos/amd64
+            name: tvos-amd64-simulator
     steps:
       - uses: actions/checkout@v4
         with:
@@ -190,7 +202,7 @@ jobs:
       - name: Package
         run: go run ./cmd/build-naive --target=${{ matrix.target }} package
       - name: Build and run test binary
-        if: matrix.target != 'ios/arm64'
+        if: startsWith(matrix.target, 'darwin/')
         run: |
           CGO_ENABLED=1 \
           CGO_LDFLAGS="$(go run ./cmd/build-naive --target=${{ matrix.target }} cgo-flags)" \

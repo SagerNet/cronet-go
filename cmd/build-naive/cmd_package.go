@@ -57,7 +57,7 @@ func packageTargets(targets []Target) {
 		targetDirectory := filepath.Join(libraryDirectory, getLibraryDirectoryName(t))
 		os.MkdirAll(targetDirectory, 0o755)
 
-		outputDirectory := fmt.Sprintf("out/cronet-%s-%s", t.OS, t.CPU)
+		outputDirectory := getOutputDirectory(t)
 
 		if t.GOOS == "windows" {
 			// Windows: only copy DLL (static linking not supported - Chromium uses MSVC, Go CGO only supports MinGW)
@@ -74,14 +74,10 @@ func packageTargets(targets []Target) {
 			sourceStatic := filepath.Join(srcRoot, outputDirectory, "obj/components/cronet/libcronet_static.a")
 			destinationStatic := filepath.Join(targetDirectory, "libcronet.a")
 			if _, err := os.Stat(sourceStatic); os.IsNotExist(err) {
-				log.Printf("Warning: static library not found for %s/%s, skipping", t.GOOS, t.ARCH)
+				log.Printf("Warning: static library not found for %s, skipping", formatTargetLog(t))
 			} else {
 				copyFile(sourceStatic, destinationStatic)
-				if t.Libc == "musl" {
-					log.Printf("Copied static library for %s/%s (musl)", t.GOOS, t.ARCH)
-				} else {
-					log.Printf("Copied static library for %s/%s", t.GOOS, t.ARCH)
-				}
+				log.Printf("Copied static library for %s", formatTargetLog(t))
 			}
 
 			// For Linux glibc, also copy shared library (for testing and release, not for go module)
@@ -121,10 +117,65 @@ import "C"
 
 // getLibraryDirectoryName returns the library directory name for a target
 func getLibraryDirectoryName(t Target) string {
-	if t.Libc == "musl" {
-		return fmt.Sprintf("%s_%s_musl", t.GOOS, t.ARCH)
+	// Determine OS name for directory
+	osName := t.GOOS
+	if t.Platform == "tvos" {
+		osName = "tvos"
 	}
-	return fmt.Sprintf("%s_%s", t.GOOS, t.ARCH)
+
+	name := fmt.Sprintf("%s_%s", osName, t.ARCH)
+
+	// Add simulator suffix for simulator targets
+	if t.Environment == "simulator" {
+		name += "_simulator"
+	}
+
+	// Add musl suffix for musl targets
+	if t.Libc == "musl" {
+		name += "_musl"
+	}
+
+	return name
+}
+
+// getBuildTag returns the Go build tag for a target
+func getBuildTag(t Target) string {
+	// iOS/tvOS use gomobile-compatible tags
+	if t.GOOS == "ios" {
+		parts := []string{"ios", t.ARCH}
+
+		if t.Platform == "tvos" {
+			// tvOS targets
+			parts = append(parts, "tvos")
+			if t.Environment == "simulator" {
+				parts = append(parts, "tvossimulator")
+			} else {
+				parts = append(parts, "!tvossimulator")
+			}
+		} else {
+			// iOS targets
+			parts = append(parts, "!tvos")
+			if t.Environment == "simulator" {
+				parts = append(parts, "iossimulator")
+			} else {
+				parts = append(parts, "!iossimulator")
+			}
+		}
+
+		return strings.Join(parts, " && ")
+	}
+
+	// Other platforms
+	if t.Libc == "musl" {
+		return fmt.Sprintf("%s && !android && %s && with_musl", t.GOOS, t.ARCH)
+	}
+	if t.GOOS == "linux" {
+		return fmt.Sprintf("%s && !android && %s && !with_musl", t.GOOS, t.ARCH)
+	}
+	if t.GOOS == "darwin" {
+		return fmt.Sprintf("%s && !ios && %s", t.GOOS, t.ARCH)
+	}
+	return fmt.Sprintf("%s && %s", t.GOOS, t.ARCH)
 }
 
 // LinkFlags contains linking parameters extracted from ninja build files
@@ -247,25 +298,16 @@ go 1.20
 		}
 
 		// Extract linking flags from ninja file
-		outputDirectory := fmt.Sprintf("out/cronet-%s-%s", t.OS, t.CPU)
+		outputDirectory := getOutputDirectory(t)
 		linkFlags, err := extractLinkFlags(outputDirectory)
 		if err != nil {
-			log.Fatalf("failed to extract link flags for %s/%s: %v", t.GOOS, t.ARCH, err)
+			log.Fatalf("failed to extract link flags for %s: %v", formatTargetLog(t), err)
 		}
 
-		log.Printf("Extracted link flags for %s/%s: libs=%v frameworks=%v ldflags=%v", t.GOOS, t.ARCH, linkFlags.Libs, linkFlags.Frameworks, linkFlags.LDFlags)
+		log.Printf("Extracted link flags for %s: libs=%v frameworks=%v ldflags=%v", formatTargetLog(t), linkFlags.Libs, linkFlags.Frameworks, linkFlags.LDFlags)
 
 		// Build tags
-		var buildTag string
-		if t.Libc == "musl" {
-			buildTag = fmt.Sprintf("%s && !android && %s && with_musl", t.GOOS, t.ARCH)
-		} else if t.GOOS == "linux" {
-			buildTag = fmt.Sprintf("%s && !android && %s && !with_musl", t.GOOS, t.ARCH)
-		} else if t.GOOS == "darwin" {
-			buildTag = fmt.Sprintf("%s && !ios && %s", t.GOOS, t.ARCH)
-		} else {
-			buildTag = fmt.Sprintf("%s && %s", t.GOOS, t.ARCH)
-		}
+		buildTag := getBuildTag(t)
 
 		// Generate libcronet_cgo.go with CGO config
 		var ldFlags []string

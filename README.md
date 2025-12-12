@@ -15,6 +15,7 @@ Go bindings for [naiveproxy](https://github.com/klzgrad/naiveproxy).
 | darwin/amd64  | mac     | x64   |
 | darwin/arm64  | mac     | arm64 |
 | ios/arm64     | ios     | arm64 |
+| ios/amd64     | ios     | amd64 |
 | linux/386     | linux   | x86   |
 | linux/amd64   | linux   | x64   |
 | linux/arm     | linux   | arm   |
@@ -28,7 +29,7 @@ Go bindings for [naiveproxy](https://github.com/klzgrad/naiveproxy).
 | Platform      | Minimum Version |
 |---------------|-----------------|
 | macOS         | 12.0 (Monterey) |
-| iOS           | 15.0            |
+| iOS/tvOS      | 15.0            |
 | Windows       | 10              |
 | Android       | 5.0 (API 21)    |
 | Linux (glibc) | glibc 2.31      |
@@ -36,13 +37,14 @@ Go bindings for [naiveproxy](https://github.com/klzgrad/naiveproxy).
 
 ## Downstream Build Requirements
 
-| Platform      | Requirements       | Go Build Flags                    |
-|---------------|--------------------|-----------------------------------|
-| Linux (glibc) | Chromium toolchain | -                                 |
-| Linux (musl)  | Chromium toolchain | `-tags with_musl`                 |
-| macOS / iOS   | macOS Xcode        | -                                 |
-| Windows       | -                  | `CGO_ENABLED=0 -tags with_purego` |
-| Android       | Android NDK        | -                                 |
+| Platform                             | Requirements                    | Go Build Flags                    |
+|--------------------------------------|---------------------------------|-----------------------------------|
+| Linux (glibc)                        | Chromium toolchain              | -                                 |
+| Linux (musl)                         | Chromium toolchain              | `-tags with_musl`                 |
+| macOS / iOS                          | macOS Xcode                     | -                                 |
+| iOS simulator/ tvOS / tvOS simulator | macOS Xcode + SagerNet/gomobile | -                                 |
+| Windows                              | -                               | `CGO_ENABLED=0 -tags with_purego` |
+| Android                              | Android NDK                     | -                                 |
 
 ## Linux Build instructions
 
