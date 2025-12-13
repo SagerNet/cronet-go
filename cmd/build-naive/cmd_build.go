@@ -25,10 +25,8 @@ func init() {
 	mainCommand.AddCommand(commandBuild)
 }
 
-// formatTargetLog returns a human-readable log string for a target
 func formatTargetLog(t Target) string {
 	if t.Platform != "" {
-		// Apple platform with Platform/Environment
 		platformName := "iOS"
 		if t.Platform == "tvos" {
 			platformName = "tvOS"
@@ -44,10 +42,8 @@ func formatTargetLog(t Target) string {
 	return fmt.Sprintf("%s/%s", t.GOOS, t.ARCH)
 }
 
-// getOutputDirectory returns the GN output directory for a target
 func getOutputDirectory(t Target) string {
 	if t.Platform != "" {
-		// Apple platform: out/cronet-{platform}-{cpu}[-simulator]
 		directory := fmt.Sprintf("out/cronet-%s-%s", t.Platform, t.CPU)
 		if t.Environment == "simulator" {
 			directory += "-simulator"
@@ -68,7 +64,6 @@ func build(targets []Target) {
 	log.Print("Build complete!")
 }
 
-// getExtraFlags returns the EXTRA_FLAGS for a target
 func getExtraFlags(t Target) string {
 	flags := []string{
 		fmt.Sprintf(`target_os="%s"`, t.OS),
@@ -77,7 +72,6 @@ func getExtraFlags(t Target) string {
 	return strings.Join(flags, " ")
 }
 
-// OpenWrt SDK configuration for each architecture
 type openwrtConfig struct {
 	target    string // OpenWrt target (e.g., "x86", "armsr")
 	subtarget string // OpenWrt subtarget (e.g., "64", "generic")
@@ -86,10 +80,8 @@ type openwrtConfig struct {
 	gccVer    string // GCC version in SDK
 }
 
-// getOpenwrtConfig returns the OpenWrt SDK configuration for a target
 func getOpenwrtConfig(t Target) openwrtConfig {
 	// Use OpenWrt 23.05.5 as it's stable and widely available
-	// GCC version varies by release
 	switch t.CPU {
 	case "x64":
 		return openwrtConfig{
@@ -129,7 +121,6 @@ func getOpenwrtConfig(t Target) openwrtConfig {
 	}
 }
 
-// getOpenwrtFlags returns the OPENWRT_FLAGS environment variable value
 func getOpenwrtFlags(t Target) string {
 	config := getOpenwrtConfig(t)
 	return fmt.Sprintf(
@@ -138,7 +129,6 @@ func getOpenwrtFlags(t Target) string {
 	)
 }
 
-// runGetClang runs naiveproxy's get-clang.sh with appropriate EXTRA_FLAGS
 func runGetClang(t Target) {
 	// For cross-compilation on Linux, we need to also build host sysroot first
 	// because GN needs host sysroot in addition to target sysroot.
@@ -147,7 +137,6 @@ func runGetClang(t Target) {
 	hostCPU := hostToCPU(runtime.GOARCH)
 	needsHostSysroot := hostOS == "linux" && (t.OS == "linux" || t.OS == "android" || t.OS == "openwrt")
 	if needsHostSysroot {
-		// Run get-clang.sh with host target to ensure host sysroot is downloaded
 		hostFlags := fmt.Sprintf(`target_os="linux" target_cpu="%s"`, hostCPU)
 		log.Printf("Running get-clang.sh for host sysroot with EXTRA_FLAGS=%s", hostFlags)
 		command := exec.Command("bash", "./get-clang.sh")
@@ -160,7 +149,6 @@ func runGetClang(t Target) {
 			log.Fatalf("get-clang.sh (host) failed: %v", err)
 		}
 
-		// Create symlink for host sysroot so GN can find it at the default location
 		hostSysrootSource := filepath.Join(srcRoot, "out/sysroot-build/bullseye/bullseye_amd64_staging")
 		hostSysrootDestination := filepath.Join(srcRoot, "build/linux/debian_bullseye_amd64-sysroot")
 		if _, err := os.Stat(hostSysrootDestination); os.IsNotExist(err) {
@@ -175,7 +163,6 @@ func runGetClang(t Target) {
 	extraFlags := getExtraFlags(t)
 	env := []string{"EXTRA_FLAGS=" + extraFlags}
 
-	// For openwrt (musl), also set OPENWRT_FLAGS
 	if t.OS == "openwrt" {
 		openwrtFlags := getOpenwrtFlags(t)
 		env = append(env, "OPENWRT_FLAGS="+openwrtFlags)
@@ -196,12 +183,10 @@ func runGetClang(t Target) {
 }
 
 func buildTarget(t Target) {
-	// Run get-clang.sh to ensure toolchain is available
 	runGetClang(t)
 
 	outputDirectory := getOutputDirectory(t)
 
-	// Prepare GN args
 	args := []string{
 		"is_official_build=true",
 		"is_debug=false",
@@ -239,7 +224,6 @@ func buildTarget(t Target) {
 		fmt.Sprintf("target_cpu=\"%s\"", t.CPU),
 	}
 
-	// Platform-specific args
 	switch t.OS {
 	case "mac":
 		args = append(args, "use_sysroot=false")
@@ -257,7 +241,6 @@ func buildTarget(t Target) {
 			args = append(args, "use_cfi_icall=false", "is_cfi=false")
 		}
 	case "openwrt":
-		// OpenWrt uses musl libc
 		config := getOpenwrtConfig(t)
 		sysrootDirectory := fmt.Sprintf("out/sysroot-build/openwrt/%s/%s", config.release, config.arch)
 		args = append(args,
@@ -295,7 +278,6 @@ func buildTarget(t Target) {
 		)
 	}
 
-	// Detect and use ccache/sccache
 	if runtime.GOOS == "windows" {
 		sccachePath, _ := exec.LookPath("sccache")
 		if sccachePath != "" {
@@ -310,13 +292,11 @@ func buildTarget(t Target) {
 
 	gnArgs := strings.Join(args, " ")
 
-	// Determine GN path
 	gnPath := filepath.Join(srcRoot, "gn", "out", "gn")
 	if runtime.GOOS == "windows" {
 		gnPath += ".exe"
 	}
 
-	// Run gn gen
 	log.Printf("Running: gn gen %s", outputDirectory)
 	gnCommand := exec.Command(gnPath, "gen", outputDirectory, "--args="+gnArgs)
 	gnCommand.Dir = srcRoot
@@ -331,7 +311,6 @@ func buildTarget(t Target) {
 		log.Fatalf("gn gen failed: %v", err)
 	}
 
-	// Run ninja
 	if t.GOOS == "windows" {
 		// Windows: only build DLL (static linking not supported - Chromium uses MSVC, Go CGO only supports MinGW)
 		log.Printf("Running: ninja -C %s cronet", outputDirectory)

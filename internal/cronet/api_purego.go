@@ -12,7 +12,6 @@ import (
 // The caller must keep the byte slice alive (via runtime.KeepAlive)
 // until the pointer is no longer needed by C code.
 func CString(s string) (uintptr, []byte) {
-	// Allocate len+1 bytes for string + null terminator
 	b := make([]byte, len(s)+1)
 	copy(b, s)
 	b[len(s)] = 0

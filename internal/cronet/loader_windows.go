@@ -23,9 +23,6 @@ var (
 	useMemmod bool
 )
 
-// LoadLibrary loads the cronet shared library from the given path.
-// If path is empty, it searches in standard locations.
-// This function is safe to call from multiple goroutines.
 func LoadLibrary(path string) error {
 	loadOnce.Do(func() {
 		loadError = doLoadLibrary(path)
@@ -33,9 +30,14 @@ func LoadLibrary(path string) error {
 	return loadError
 }
 
-// ensureLoaded attempts to load the library and panics if it fails.
-// It's safe to call from multiple goroutines.
 func ensureLoaded() {
+	if embeddedDLL != nil {
+		err := LoadLibraryFromMemory(embeddedDLL)
+		if err != nil {
+			panic(err)
+		}
+		return
+	}
 	err := LoadLibrary("")
 	if err != nil {
 		panic(err)
@@ -51,7 +53,6 @@ func doLoadLibrary(path string) error {
 		return errors.New("cronet: library not found")
 	}
 
-	// First try standard LoadLibrary
 	handle, err := syscall.LoadLibrary(path)
 	if err == nil {
 		libHandle = uintptr(handle)
@@ -95,17 +96,13 @@ func doLoadLibraryFromMemory(data []byte) error {
 	return registerSymbols()
 }
 
-// findLibrary searches for the cronet library in standard locations.
 func findLibrary() string {
 	libName := "libcronet.dll"
 
-	// Search paths in order of preference
 	searchPaths := []string{
-		// Relative to executable
 		filepath.Dir(os.Args[0]),
 	}
 
-	// Add PATH directories
 	if pathEnv := os.Getenv("PATH"); pathEnv != "" {
 		paths := filepath.SplitList(pathEnv)
 		searchPaths = append(searchPaths, paths...)
@@ -121,7 +118,6 @@ func findLibrary() string {
 	return ""
 }
 
-// lookupSymbol gets a symbol address from the loaded library.
 func lookupSymbol(name string) (uintptr, error) {
 	if useMemmod {
 		if memmodLib == nil {
@@ -141,7 +137,6 @@ func lookupSymbol(name string) (uintptr, error) {
 	return proc, nil
 }
 
-// registerFunc registers a function pointer with the library.
 func registerFunc(fnPtr interface{}, name string) error {
 	sym, err := lookupSymbol(name)
 	if err != nil {
@@ -151,7 +146,6 @@ func registerFunc(fnPtr interface{}, name string) error {
 	return nil
 }
 
-// registerSymbols loads all function pointers from the library.
 func registerSymbols() error {
 	// Buffer
 	if err := registerFunc(&cronetBufferCreate, "Cronet_Buffer_Create"); err != nil {

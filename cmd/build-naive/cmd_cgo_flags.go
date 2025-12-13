@@ -28,7 +28,6 @@ func init() {
 func printCGOFlags(t Target) {
 	outputDirectory := fmt.Sprintf("out/cronet-%s-%s", t.OS, t.CPU)
 
-	// Extract linking flags from ninja file
 	linkFlags, err := extractLinkFlags(outputDirectory)
 	if err != nil {
 		log.Fatalf("failed to extract link flags: %v", err)
@@ -36,7 +35,6 @@ func printCGOFlags(t Target) {
 
 	var ldFlags []string
 
-	// Add static library reference
 	libraryDirectory := filepath.Join(projectRoot, "lib", getLibraryDirectoryName(t))
 	if t.GOOS == "darwin" || t.GOOS == "ios" {
 		ldFlags = append(ldFlags, filepath.Join(libraryDirectory, "libcronet.a"))
@@ -44,16 +42,10 @@ func printCGOFlags(t Target) {
 		ldFlags = append(ldFlags, "-L"+libraryDirectory, "-l:libcronet.a")
 	}
 
-	// Add extracted ldflags (e.g., -Wl,-wrap,* for Android)
 	ldFlags = append(ldFlags, linkFlags.LDFlags...)
-
-	// Add extracted libs
 	ldFlags = append(ldFlags, linkFlags.Libs...)
-
-	// Add extracted frameworks
 	ldFlags = append(ldFlags, linkFlags.Frameworks...)
 
-	// Add Linux-specific flags
 	if t.GOOS == "linux" {
 		ldFlags = append(ldFlags, "-fuse-ld=lld")
 		// Add -no-pie for 32-bit (required for position-dependent code)

@@ -30,10 +30,8 @@ func init() {
 func publish() {
 	log.Printf("Publishing to %s branch...", publishBranch)
 
-	// Get current commit
 	mainCommit := strings.TrimSpace(runCommandOutput(projectRoot, "git", "rev-parse", "HEAD"))
 
-	// Create temp directory for worktree
 	temporaryDirectory, err := os.MkdirTemp("", "cronet-go-publish-")
 	if err != nil {
 		log.Fatalf("failed to create temp dir: %v", err)
@@ -43,27 +41,23 @@ func publish() {
 		os.RemoveAll(temporaryDirectory)
 	}()
 
-	// Create worktree based on current HEAD (keep all files)
 	runCommand(projectRoot, "git", "worktree", "add", temporaryDirectory, "HEAD")
 
 	// === Step 1: Push main module + lib submodules ===
 	log.Print("Step 1: Publishing main module and lib submodules...")
 
-	// Copy lib, include directories and include_cgo.go
 	// Exclude shared libraries (.so) - they are for testing/release only, not for go module
 	copyDirectoryExclude(filepath.Join(projectRoot, "lib"), filepath.Join(temporaryDirectory, "lib"), []string{"*.so"})
 	copyDirectory(filepath.Join(projectRoot, "include"), filepath.Join(temporaryDirectory, "include"))
 	copyFile(filepath.Join(projectRoot, "include_cgo.go"), filepath.Join(temporaryDirectory, "include_cgo.go"))
 
-	// Stage and commit (force add to include .gitignore'd files)
+	// Use -f (force add) to include .gitignore'd files
 	runCommand(temporaryDirectory, "git", "add", "-f", "-A")
 	commitMessage := fmt.Sprintf("Build from %s", mainCommit[:8])
 	runCommand(temporaryDirectory, "git", "commit", "-m", commitMessage)
 
-	// Force push to target branch
 	runCommand(temporaryDirectory, "git", "push", "-f", "origin", "HEAD:refs/heads/"+publishBranch)
 
-	// Get the commit hash and time of the first push
 	firstCommit := strings.TrimSpace(runCommandOutput(temporaryDirectory, "git", "rev-parse", "HEAD"))
 	commitTime := getCommitTime(temporaryDirectory, firstCommit)
 	pseudoVersion := formatPseudoVersion(commitTime, firstCommit)
@@ -73,7 +67,6 @@ func publish() {
 	// === Step 2: Generate and push all package ===
 	log.Print("Step 2: Generating all package...")
 
-	// Get list of lib directories that were actually built
 	libDirectory := filepath.Join(temporaryDirectory, "lib")
 	libEntries, err := os.ReadDir(libDirectory)
 	if err != nil {
@@ -91,13 +84,18 @@ func publish() {
 		log.Fatal("no lib directories found")
 	}
 
-	// Generate all/ package
 	generateAllPackage(temporaryDirectory, pseudoVersion, builtTargets)
 
-	// Run go mod tidy with GOPROXY=direct
+	// Fix lib submodules' go.mod to use correct pseudo-version
+	// (package stage's go mod tidy may have selected wrong version)
+	fixLibSubmoduleVersions(filepath.Join(temporaryDirectory, "lib"), builtTargets, pseudoVersion)
+
+	// Use GOPROXY=direct to avoid proxy caching issues when using the new pseudo-version
 	runGoModTidy(filepath.Join(temporaryDirectory, "all"))
 
-	// Stage and commit
+	// Force correct version after tidy (tidy may select a higher tagged version due to MVS)
+	forceMainModuleVersion(filepath.Join(temporaryDirectory, "all"), pseudoVersion)
+
 	runCommand(temporaryDirectory, "git", "add", "-f", "-A")
 	runCommand(temporaryDirectory, "git", "commit", "-m", "Generate all package")
 	runCommand(temporaryDirectory, "git", "push", "origin", "HEAD:"+publishBranch)
@@ -105,14 +103,11 @@ func publish() {
 	log.Printf("Published to %s branch!", publishBranch)
 }
 
-// formatPseudoVersion generates a Go pseudo-version
-// Format: v0.0.0-yyyymmddhhmmss-abcdef123456
 func formatPseudoVersion(commitTime time.Time, commitHash string) string {
 	timestamp := commitTime.UTC().Format("20060102150405")
 	return fmt.Sprintf("v0.0.0-%s-%s", timestamp, commitHash[:12])
 }
 
-// getCommitTime retrieves the commit time of a given commit
 func getCommitTime(directory, commitHash string) time.Time {
 	output := runCommandOutput(directory, "git", "show", "-s", "--format=%cI", commitHash)
 	t, err := time.Parse(time.RFC3339, strings.TrimSpace(output))
@@ -122,7 +117,6 @@ func getCommitTime(directory, commitHash string) time.Time {
 	return t
 }
 
-// generateAllPackage generates the all/ aggregation package
 func generateAllPackage(directory, pseudoVersion string, builtTargets []string) {
 	allDirectory := filepath.Join(directory, "all")
 	err := os.MkdirAll(allDirectory, 0o755)
@@ -130,10 +124,8 @@ func generateAllPackage(directory, pseudoVersion string, builtTargets []string) 
 		log.Fatalf("failed to create all directory: %v", err)
 	}
 
-	// Generate go.mod
 	generateAllGoMod(allDirectory, pseudoVersion, builtTargets)
 
-	// Generate platform-specific files
 	for _, targetName := range builtTargets {
 		generatePlatformImportFile(allDirectory, targetName)
 	}
@@ -141,7 +133,6 @@ func generateAllPackage(directory, pseudoVersion string, builtTargets []string) 
 	log.Printf("Generated all package with %d platforms", len(builtTargets))
 }
 
-// generateAllGoMod generates the go.mod file for the all package
 func generateAllGoMod(allDirectory, pseudoVersion string, builtTargets []string) {
 	var builder strings.Builder
 	builder.WriteString("module github.com/sagernet/cronet-go/all\n\n")
@@ -160,7 +151,6 @@ func generateAllGoMod(allDirectory, pseudoVersion string, builtTargets []string)
 	}
 }
 
-// generatePlatformImportFile generates a platform-specific import file
 func generatePlatformImportFile(allDirectory, targetName string) {
 	buildTag := getBuildTagForTarget(targetName)
 	packageName := strings.ReplaceAll(targetName, "-", "_")
@@ -195,7 +185,6 @@ func getBuildTagForTarget(targetName string) string {
 	goos := parts[0]
 	goarch := parts[1]
 
-	// Check for special suffixes
 	isSimulator := false
 	isMusl := false
 	isTvOS := false
@@ -238,25 +227,26 @@ func getBuildTagForTarget(targetName string) string {
 		return strings.Join(tagParts, " && ")
 	}
 
-	// Handle musl
 	if isMusl {
 		return fmt.Sprintf("%s && !android && %s && with_musl", goos, goarch)
 	}
 
-	// Handle Linux glibc
 	if goos == "linux" {
 		return fmt.Sprintf("%s && !android && %s && !with_musl", goos, goarch)
 	}
 
-	// Handle macOS
 	if goos == "darwin" {
 		return fmt.Sprintf("%s && !ios && %s", goos, goarch)
+	}
+
+	// Windows: purego only
+	if goos == "windows" {
+		return fmt.Sprintf("%s && %s && with_purego", goos, goarch)
 	}
 
 	return fmt.Sprintf("%s && %s", goos, goarch)
 }
 
-// runGoModTidy runs go mod tidy with GOPROXY=direct
 func runGoModTidy(directory string) {
 	log.Printf("Running go mod tidy in %s with GOPROXY=direct...", directory)
 	command := exec.Command("go", "mod", "tidy")
@@ -267,5 +257,37 @@ func runGoModTidy(directory string) {
 	err := command.Run()
 	if err != nil {
 		log.Fatalf("go mod tidy failed: %v", err)
+	}
+}
+
+func forceMainModuleVersion(directory, version string) {
+	log.Printf("Forcing main module version to %s...", version)
+	runCommand(directory, "go", "mod", "edit", "-require=github.com/sagernet/cronet-go@"+version)
+}
+
+func fixLibSubmoduleVersions(libDirectory string, targets []string, version string) {
+	log.Printf("Fixing lib submodule versions to %s...", version)
+	for _, targetName := range targets {
+		submoduleDirectory := filepath.Join(libDirectory, targetName)
+		goModPath := filepath.Join(submoduleDirectory, "go.mod")
+
+		// Check if go.mod exists
+		if _, err := os.Stat(goModPath); os.IsNotExist(err) {
+			continue
+		}
+
+		// Check if this submodule depends on main module
+		content, err := os.ReadFile(goModPath)
+		if err != nil {
+			log.Fatalf("failed to read %s: %v", goModPath, err)
+		}
+
+		if !strings.Contains(string(content), "github.com/sagernet/cronet-go") {
+			continue
+		}
+
+		// Force correct version
+		runCommand(submoduleDirectory, "go", "mod", "edit", "-require=github.com/sagernet/cronet-go@"+version)
+		log.Printf("  Fixed lib/%s", targetName)
 	}
 }

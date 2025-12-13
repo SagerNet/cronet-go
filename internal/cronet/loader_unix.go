@@ -56,7 +56,6 @@ func doLoadLibrary(path string) error {
 	return registerSymbols()
 }
 
-// findLibrary searches for the cronet library in standard locations.
 func findLibrary() string {
 	var libName string
 	switch runtime.GOOS {
@@ -68,19 +67,15 @@ func findLibrary() string {
 		return ""
 	}
 
-	// Search paths in order of preference
 	searchPaths := []string{
-		// Relative to executable
 		filepath.Dir(os.Args[0]),
 	}
 
-	// Add LD_LIBRARY_PATH paths
 	if ldPath := os.Getenv("LD_LIBRARY_PATH"); ldPath != "" {
 		paths := filepath.SplitList(ldPath)
 		searchPaths = append(searchPaths, paths...)
 	}
 
-	// On macOS, also check DYLD_LIBRARY_PATH
 	if runtime.GOOS == "darwin" {
 		if dyldPath := os.Getenv("DYLD_LIBRARY_PATH"); dyldPath != "" {
 			paths := filepath.SplitList(dyldPath)
@@ -88,7 +83,6 @@ func findLibrary() string {
 		}
 	}
 
-	// Common library paths
 	searchPaths = append(searchPaths, "/usr/local/lib", "/usr/lib")
 
 	for _, searchPath := range searchPaths {
@@ -101,7 +95,6 @@ func findLibrary() string {
 	return ""
 }
 
-// lookupSymbol gets a symbol address from the loaded library.
 func lookupSymbol(name string) (uintptr, error) {
 	if libHandle == 0 {
 		return 0, errors.New("cronet: library not loaded")
@@ -113,7 +106,6 @@ func lookupSymbol(name string) (uintptr, error) {
 	return sym, nil
 }
 
-// registerFunc registers a function pointer with the library.
 func registerFunc(fnPtr interface{}, name string) error {
 	sym, err := lookupSymbol(name)
 	if err != nil {
@@ -123,7 +115,6 @@ func registerFunc(fnPtr interface{}, name string) error {
 	return nil
 }
 
-// registerSymbols loads all function pointers from the library.
 func registerSymbols() error {
 	// Buffer
 	if err := registerFunc(&cronetBufferCreate, "Cronet_Buffer_Create"); err != nil {

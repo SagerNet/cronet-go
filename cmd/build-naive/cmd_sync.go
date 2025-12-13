@@ -27,7 +27,6 @@ func init() {
 func sync() {
 	log.Print("Syncing Chromium cronet components...")
 
-	// Read CHROMIUM_VERSION
 	versionFile := filepath.Join(naiveRoot, "CHROMIUM_VERSION")
 	versionData, err := os.ReadFile(versionFile)
 	if err != nil {
@@ -36,10 +35,8 @@ func sync() {
 	version := strings.TrimSpace(string(versionData))
 	log.Printf("Chromium version: %s", version)
 
-	// Check if components exist and are committed
 	cronetDirectory := filepath.Join(srcRoot, "components", "cronet")
 	if _, err := os.Stat(cronetDirectory); err == nil {
-		// Directory exists, check if it's committed
 		status := runCommandOutput(naiveRoot, "git", "status", "--porcelain", "src/components/cronet")
 		if strings.TrimSpace(status) == "" {
 			log.Print("Components already up to date")
@@ -47,7 +44,6 @@ func sync() {
 		}
 	}
 
-	// Components to download
 	components := []string{"cronet", "grpc_support", "prefs"}
 
 	for _, name := range components {
@@ -59,14 +55,12 @@ func sync() {
 
 		destinationDirectory := filepath.Join(srcRoot, "components", name)
 
-		// Remove existing directory
 		os.RemoveAll(destinationDirectory)
 		err := os.MkdirAll(destinationDirectory, 0o755)
 		if err != nil {
 			log.Fatalf("failed to create directory %s: %v", destinationDirectory, err)
 		}
 
-		// Download and extract
 		err = downloadAndExtract(url, destinationDirectory)
 		if err != nil {
 			log.Fatalf("failed to download %s: %v", name, err)
@@ -75,7 +69,6 @@ func sync() {
 		log.Printf("Downloaded %s", name)
 	}
 
-	// Git add and commit
 	log.Print("Creating git commit...")
 	runCommand(naiveRoot, "git", "add",
 		"src/components/cronet",
@@ -107,7 +100,7 @@ func downloadAndExtract(url, destinationDirectory string) error {
 		return fmt.Errorf("HTTP %d: %s", response.StatusCode, response.Status)
 	}
 
-	// Use tar command to extract (simpler than using archive/tar with gzip)
+	// Use tar command (simpler than using archive/tar with gzip)
 	command := exec.Command("tar", "-xzf", "-", "-C", destinationDirectory)
 	command.Stdin = response.Body
 	command.Stdout = os.Stdout

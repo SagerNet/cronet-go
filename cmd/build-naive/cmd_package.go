@@ -28,7 +28,6 @@ func init() {
 func packageTargets(targets []Target) {
 	log.Printf("Packaging libraries for %d target(s)", len(targets))
 
-	// Create lib directory
 	libraryDirectory := filepath.Join(projectRoot, "lib")
 	includeDirectory := filepath.Join(projectRoot, "include")
 
@@ -36,7 +35,6 @@ func packageTargets(targets []Target) {
 	os.RemoveAll(includeDirectory)
 	os.MkdirAll(includeDirectory, 0o755)
 
-	// Copy headers to main module
 	headers := []struct {
 		source      string
 		destination string
@@ -52,7 +50,6 @@ func packageTargets(targets []Target) {
 	}
 	log.Print("Copied headers to include/")
 
-	// Copy libraries for each target
 	for _, t := range targets {
 		targetDirectory := filepath.Join(libraryDirectory, getLibraryDirectoryName(t))
 		os.MkdirAll(targetDirectory, 0o755)
@@ -70,7 +67,6 @@ func packageTargets(targets []Target) {
 				log.Printf("Copied DLL for %s/%s", t.GOOS, t.ARCH)
 			}
 		} else {
-			// Other platforms: copy static library
 			sourceStatic := filepath.Join(srcRoot, outputDirectory, "obj/components/cronet/libcronet_static.a")
 			destinationStatic := filepath.Join(targetDirectory, "libcronet.a")
 			if _, err := os.Stat(sourceStatic); os.IsNotExist(err) {
@@ -92,7 +88,6 @@ func packageTargets(targets []Target) {
 		}
 	}
 
-	// Generate main module cgo.go and submodule files
 	generateCGOConfig()
 	generateSubmodules(targets)
 
@@ -115,9 +110,7 @@ import "C"
 	log.Print("Generated include_cgo.go")
 }
 
-// getLibraryDirectoryName returns the library directory name for a target
 func getLibraryDirectoryName(t Target) string {
-	// Determine OS name for directory
 	osName := t.GOOS
 	if t.Platform == "tvos" {
 		osName = "tvos"
@@ -125,12 +118,10 @@ func getLibraryDirectoryName(t Target) string {
 
 	name := fmt.Sprintf("%s_%s", osName, t.ARCH)
 
-	// Add simulator suffix for simulator targets
 	if t.Environment == "simulator" {
 		name += "_simulator"
 	}
 
-	// Add musl suffix for musl targets
 	if t.Libc == "musl" {
 		name += "_musl"
 	}
@@ -138,14 +129,12 @@ func getLibraryDirectoryName(t Target) string {
 	return name
 }
 
-// getBuildTag returns the Go build tag for a target
 func getBuildTag(t Target) string {
 	// iOS/tvOS use gomobile-compatible tags
 	if t.GOOS == "ios" {
 		parts := []string{"ios", t.ARCH}
 
 		if t.Platform == "tvos" {
-			// tvOS targets
 			parts = append(parts, "tvos")
 			if t.Environment == "simulator" {
 				parts = append(parts, "tvossimulator")
@@ -153,7 +142,6 @@ func getBuildTag(t Target) string {
 				parts = append(parts, "!tvossimulator")
 			}
 		} else {
-			// iOS targets
 			parts = append(parts, "!tvos")
 			if t.Environment == "simulator" {
 				parts = append(parts, "iossimulator")
@@ -165,7 +153,6 @@ func getBuildTag(t Target) string {
 		return strings.Join(parts, " && ")
 	}
 
-	// Other platforms
 	if t.Libc == "musl" {
 		return fmt.Sprintf("%s && !android && %s && with_musl", t.GOOS, t.ARCH)
 	}
@@ -178,14 +165,12 @@ func getBuildTag(t Target) string {
 	return fmt.Sprintf("%s && %s", t.GOOS, t.ARCH)
 }
 
-// LinkFlags contains linking parameters extracted from ninja build files
 type LinkFlags struct {
-	Libs       []string // System libraries (e.g., -ldl, -lpthread)
-	Frameworks []string // macOS/iOS frameworks (e.g., -framework Security)
-	LDFlags    []string // Linker flags (e.g., -Wl,-wrap,realpath)
+	Libs       []string
+	Frameworks []string
+	LDFlags    []string
 }
 
-// extractLinkFlags parses the ninja file for cronet_sample to extract linking parameters
 func extractLinkFlags(outputDirectory string) (LinkFlags, error) {
 	ninjaPath := filepath.Join(srcRoot, outputDirectory, "obj/components/cronet/cronet_sample.ninja")
 	file, err := os.Open(ninjaPath)
@@ -238,7 +223,6 @@ func extractLinkFlags(outputDirectory string) (LinkFlags, error) {
 	return flags, nil
 }
 
-// parseFrameworks parses "-framework Foo -framework Bar" into []string{"-framework Foo", "-framework Bar"}
 func parseFrameworks(input string) []string {
 	var result []string
 	parts := strings.Fields(input)
@@ -251,8 +235,6 @@ func parseFrameworks(input string) []string {
 	return result
 }
 
-// parseLDFlags extracts relevant linker flags from the ldflags string.
-// We specifically extract -Wl,-wrap,* flags needed for Android allocator shim.
 func parseLDFlags(input string) []string {
 	var result []string
 	for _, flag := range strings.Fields(input) {
@@ -277,7 +259,6 @@ func generateSubmodules(targets []Target) {
 		targetDirectory := filepath.Join(projectRoot, "lib", directoryName)
 		packageName := strings.ReplaceAll(directoryName, "-", "_")
 
-		// Generate go.mod
 		goModContent := fmt.Sprintf(`module github.com/sagernet/cronet-go/lib/%s
 
 go 1.20
@@ -297,7 +278,6 @@ go 1.20
 			continue
 		}
 
-		// Extract linking flags from ninja file
 		outputDirectory := getOutputDirectory(t)
 		linkFlags, err := extractLinkFlags(outputDirectory)
 		if err != nil {
@@ -306,29 +286,20 @@ go 1.20
 
 		log.Printf("Extracted link flags for %s: libs=%v frameworks=%v ldflags=%v", formatTargetLog(t), linkFlags.Libs, linkFlags.Frameworks, linkFlags.LDFlags)
 
-		// Build tags
 		buildTag := getBuildTag(t)
 
-		// Generate libcronet_cgo.go with CGO config
 		var ldFlags []string
 
-		// Add static library reference
 		if t.GOOS == "darwin" || t.GOOS == "ios" {
 			ldFlags = append(ldFlags, "${SRCDIR}/libcronet.a")
 		} else {
 			ldFlags = append(ldFlags, "-L${SRCDIR}", "-l:libcronet.a")
 		}
 
-		// Add extracted ldflags (e.g., -Wl,-wrap,* for Android)
 		ldFlags = append(ldFlags, linkFlags.LDFlags...)
-
-		// Add extracted libs
 		ldFlags = append(ldFlags, linkFlags.Libs...)
-
-		// Add extracted frameworks
 		ldFlags = append(ldFlags, linkFlags.Frameworks...)
 
-		// Add Linux-specific flags
 		if t.GOOS == "linux" && t.Libc == "musl" {
 			ldFlags = append(ldFlags, "-static")
 		}
@@ -349,15 +320,12 @@ const Version = "%s"
 			log.Fatalf("failed to write libcronet_cgo.go: %v", err)
 		}
 
-		// Run go mod tidy
 		runCommand(targetDirectory, "go", "mod", "tidy")
 
 		log.Printf("Generated submodule lib/%s", directoryName)
 	}
 }
 
-// generateEmbedFile generates libcronet.go for Windows targets.
-// This allows the DLL to be embedded in the binary for purego mode.
 func generateEmbedFile(targetDirectory, packageName, chromiumVersion string) {
 	content := fmt.Sprintf(`//go:build with_purego
 
@@ -365,12 +333,20 @@ package %s
 
 import (
 	_ "embed"
+	_ "unsafe"
 )
 
 //go:embed libcronet.dll
-var EmbeddedDLL []byte
+var embeddedDLL []byte
 
-const EmbeddedVersion = "%s"
+//go:linkname cronetEmbeddedDLL github.com/sagernet/cronet-go/internal/cronet.embeddedDLL
+var cronetEmbeddedDLL []byte
+
+const Version = "%s"
+
+func init() {
+	cronetEmbeddedDLL = embeddedDLL
+}
 `, packageName, chromiumVersion)
 
 	embedPath := filepath.Join(targetDirectory, "libcronet.go")

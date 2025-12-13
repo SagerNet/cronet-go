@@ -24,7 +24,6 @@ func init() {
 	mainCommand.AddCommand(commandEnv)
 }
 
-// getClangTarget returns the clang target triple for a target
 func getClangTarget(t Target) string {
 	if t.Libc == "musl" {
 		switch t.CPU {
@@ -51,7 +50,6 @@ func getClangTarget(t Target) string {
 	return ""
 }
 
-// getSysrootPath returns the sysroot path for a target
 func getSysrootPath(t Target) string {
 	if t.Libc == "musl" {
 		config := getOpenwrtConfig(t)

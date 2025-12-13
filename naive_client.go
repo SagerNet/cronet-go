@@ -48,6 +48,10 @@ type NaiveClient struct {
 }
 
 func NewNaiveClient(config NaiveClientConfig) (*NaiveClient, error) {
+	err := checkLibrary()
+	if err != nil {
+		return nil, err
+	}
 	if !config.ServerAddress.IsValid() {
 		return nil, E.New("invalid server address")
 	}

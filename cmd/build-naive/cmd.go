@@ -34,15 +34,12 @@ var allTargets = []Target{
 	{OS: "win", CPU: "x64", GOOS: "windows", ARCH: "amd64"},
 	{OS: "win", CPU: "arm64", GOOS: "windows", ARCH: "arm64"},
 	{OS: "win", CPU: "x86", GOOS: "windows", ARCH: "386"},
-	// iOS
 	{OS: "ios", CPU: "arm64", GOOS: "ios", ARCH: "arm64", Platform: "iphoneos", Environment: "device"},
 	{OS: "ios", CPU: "arm64", GOOS: "ios", ARCH: "arm64", Platform: "iphoneos", Environment: "simulator"},
 	{OS: "ios", CPU: "x64", GOOS: "ios", ARCH: "amd64", Platform: "iphoneos", Environment: "simulator"},
-	// tvOS
 	{OS: "ios", CPU: "arm64", GOOS: "ios", ARCH: "arm64", Platform: "tvos", Environment: "device"},
 	{OS: "ios", CPU: "arm64", GOOS: "ios", ARCH: "arm64", Platform: "tvos", Environment: "simulator"},
 	{OS: "ios", CPU: "x64", GOOS: "ios", ARCH: "amd64", Platform: "tvos", Environment: "simulator"},
-	// Android
 	{OS: "android", CPU: "arm64", GOOS: "android", ARCH: "arm64"},
 	{OS: "android", CPU: "x64", GOOS: "android", ARCH: "amd64"},
 	{OS: "android", CPU: "arm", GOOS: "android", ARCH: "arm"},
@@ -71,7 +68,6 @@ func init() {
 }
 
 func preRun(cmd *cobra.Command, args []string) {
-	// Find project root (directory containing go.mod)
 	workingDirectory, err := os.Getwd()
 	if err != nil {
 		log.Fatalf("failed to get working directory: %v", err)
@@ -92,13 +88,11 @@ func preRun(cmd *cobra.Command, args []string) {
 }
 
 func parseTargets() []Target {
-	// Validate libc option
 	if libcStr != "" && libcStr != "glibc" && libcStr != "musl" {
 		log.Fatalf("invalid libc: %s (expected glibc or musl)", libcStr)
 	}
 
 	if targetStr == "" {
-		// Default to host platform
 		hostOS := runtime.GOOS
 		hostArch := runtime.GOARCH
 		for _, t := range allTargets {
@@ -135,7 +129,6 @@ func parseTargets() []Target {
 			continue
 		}
 
-		// Standard targets
 		if len(parts) != 2 {
 			log.Fatalf("invalid target format: %s (expected os/arch)", part)
 		}
@@ -171,7 +164,6 @@ func parseAppleTarget(goos, goarch string, parts []string) Target {
 		platform = "tvos"
 	}
 
-	// Determine environment
 	environment := "device"
 	if len(parts) == 3 && parts[2] == "simulator" {
 		environment = "simulator"
@@ -180,7 +172,6 @@ func parseAppleTarget(goos, goarch string, parts []string) Target {
 		environment = "simulator"
 	}
 
-	// Find matching target
 	for _, t := range allTargets {
 		if t.GOOS == "ios" && t.ARCH == goarch && t.Platform == platform && t.Environment == environment {
 			return t
@@ -191,13 +182,11 @@ func parseAppleTarget(goos, goarch string, parts []string) Target {
 	return Target{}
 }
 
-// applyLibc applies the --libc flag to a target
 func applyLibc(target Target) Target {
 	if libcStr == "" || libcStr == "glibc" {
 		return target
 	}
 
-	// musl is only supported on Linux
 	if target.GOOS != "linux" {
 		log.Fatalf("--libc=musl is only supported for Linux targets, not %s", target.GOOS)
 	}
@@ -208,7 +197,6 @@ func applyLibc(target Target) Target {
 	return target
 }
 
-// hostToCPU converts Go GOARCH to GN cpu
 func hostToCPU(goarch string) string {
 	switch goarch {
 	case "amd64":
