@@ -62,7 +62,9 @@ jobs:
         if: steps.build-cache.outputs.cache-hit != 'true'
         run: ccache -s
       - name: Package
-        run: go run ./cmd/build-naive --target=linux/${{ matrix.arch }} package --local
+        run: |
+          go run ./cmd/build-naive --target=linux/${{ matrix.arch }} package --local
+          go run ./cmd/build-naive --target=linux/${{ matrix.arch }} package
       - name: Cache toolchain
         uses: actions/cache@v4
         with:
@@ -174,7 +176,9 @@ jobs:
         if: steps.build-cache.outputs.cache-hit != 'true'
         run: ccache -s
       - name: Package
-        run: go run ./cmd/build-naive --target=${{ matrix.target }} package --local
+        run: |
+          go run ./cmd/build-naive --target=${{ matrix.target }} package --local
+          go run ./cmd/build-naive --target=${{ matrix.target }} package
       - name: Build and run test binary
         if: matrix.target == 'darwin/arm64'
         run: |
@@ -313,7 +317,9 @@ jobs:
         if: steps.build-cache.outputs.cache-hit != 'true'
         run: ccache -s
       - name: Package
-        run: go run ./cmd/build-naive --target=android/${{ matrix.arch }} package --local
+        run: |
+          go run ./cmd/build-naive --target=android/${{ matrix.arch }} package --local
+          go run ./cmd/build-naive --target=android/${{ matrix.arch }} package
       - name: Setup Android NDK
         uses: nttld/setup-ndk@v1
         id: setup-ndk
@@ -379,7 +385,9 @@ jobs:
         if: steps.build-cache.outputs.cache-hit != 'true'
         run: ccache -s
       - name: Package
-        run: go run ./cmd/build-naive --target=linux/${{ matrix.arch }} --libc=musl package --local
+        run: |
+          go run ./cmd/build-naive --target=linux/${{ matrix.arch }} --libc=musl package --local
+          go run ./cmd/build-naive --target=linux/${{ matrix.arch }} --libc=musl package
       - name: Cache toolchain
         uses: actions/cache@v4
         with:
@@ -397,7 +405,7 @@ jobs:
       - name: Build test binary
         run: |
           eval $(go run ./cmd/build-naive --target=linux/${{ matrix.arch }} --libc=musl env --export)
-          CGO_ENABLED=1 GOOS=linux GOARCH=${{ matrix.arch }} go test -c -o cronet.test .
+          CGO_ENABLED=1 GOOS=linux GOARCH=${{ matrix.arch }} go test -c -tags with_musl -o cronet.test .
       - name: Run test binary
         continue-on-error: true  # musl/QEMU test is flaky, don't block CI
         run: |
@@ -416,6 +424,139 @@ jobs:
             lib/
             include/
             include_cgo.go
+
+  integration-test:
+    if: github.event_name == 'push'
+    needs: [linux, darwin, windows]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-amd64-cgo
+            os: ubuntu-22.04
+            artifact: cronet-linux-amd64
+            target: linux/amd64
+            mode: cgo
+          - name: linux-amd64-purego
+            os: ubuntu-22.04
+            artifact: cronet-linux-amd64
+            target: linux/amd64
+            mode: purego
+          - name: darwin-arm64
+            os: macos-15
+            artifact: cronet-darwin-arm64
+            target: darwin/arm64
+            mode: cgo
+          - name: windows-amd64
+            os: windows-2022
+            artifact: cronet-windows-amd64
+            target: windows/amd64
+            mode: purego
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ^1.24
+
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: .
+
+      - name: Get naiveproxy commit
+        id: naive
+        shell: bash
+        run: echo "commit=$(git -C naiveproxy rev-parse HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Get Chromium version
+        id: chromium
+        shell: bash
+        run: echo "version=$(cat naiveproxy/CHROMIUM_VERSION)" >> $GITHUB_OUTPUT
+
+      # Linux: restore build cache and toolchain cache (needed for env command)
+      - name: Restore build cache (Linux)
+        if: runner.os == 'Linux'
+        uses: actions/cache/restore@v4
+        with:
+          path: naiveproxy/src/out
+          key: naive-build-${{ steps.naive.outputs.commit }}-${{ hashFiles('cmd/build-naive/cmd_build.go', 'cmd/build-naive/cmd.go') }}-linux-amd64
+
+      - name: Restore toolchain cache (Linux)
+        if: runner.os == 'Linux'
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            naiveproxy/src/third_party/llvm-build
+            naiveproxy/src/gn/out
+            naiveproxy/src/chrome/build/pgo_profiles
+          key: toolchain-linux-${{ steps.chromium.outputs.version }}
+
+      - name: Download toolchain (Linux)
+        if: runner.os == 'Linux'
+        run: go run ./cmd/build-naive --target=linux/amd64 download-toolchain
+
+      # Darwin: restore build cache (needed for env command)
+      - name: Restore build cache (macOS)
+        if: runner.os == 'macOS'
+        uses: actions/cache/restore@v4
+        with:
+          path: naiveproxy/src/out
+          key: naive-build-${{ steps.naive.outputs.commit }}-${{ hashFiles('cmd/build-naive/cmd_build.go', 'cmd/build-naive/cmd.go') }}-darwin-arm64
+
+      # Install iperf3
+      - name: Install iperf3 (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt update
+          sudo apt install -y iperf3
+
+      - name: Install iperf3 (macOS)
+        if: runner.os == 'macOS'
+        run: brew install iperf3
+
+      - name: Install iperf3 (Windows)
+        if: runner.os == 'Windows'
+        run: choco install iperf3
+
+      # Generate package --local files
+      - name: Package (non-Windows)
+        if: runner.os != 'Windows'
+        run: go run ./cmd/build-naive --target=${{ matrix.target }} package --local
+
+      # CGO mode tests
+      - name: Run integration tests (CGO - Linux)
+        if: matrix.mode == 'cgo' && runner.os == 'Linux'
+        run: |
+          eval $(go run ./cmd/build-naive --target=${{ matrix.target }} env --export)
+          cd test && CGO_ENABLED=1 go test -v
+
+      - name: Run integration tests (CGO - macOS)
+        if: matrix.mode == 'cgo' && runner.os == 'macOS'
+        run: |
+          eval $(go run ./cmd/build-naive --target=${{ matrix.target }} env --export)
+          cd test && CGO_ENABLED=1 go test -v
+
+      # purego mode tests
+      - name: Run integration tests (purego - Linux)
+        if: matrix.mode == 'purego' && runner.os == 'Linux'
+        working-directory: test
+        run: |
+          export LD_LIBRARY_PATH=$PWD/../lib/linux_amd64
+          CGO_ENABLED=0 go test -tags with_purego -v
+
+      - name: Run integration tests (purego - Windows)
+        if: matrix.mode == 'purego' && runner.os == 'Windows'
+        working-directory: test
+        shell: bash
+        run: |
+          # Add DLL directory to PATH for library loading
+          export PATH="$PWD/../lib/windows_amd64:$PATH"
+          go test -tags with_purego -v
 
   publish:
     if: github.event_name == 'push'

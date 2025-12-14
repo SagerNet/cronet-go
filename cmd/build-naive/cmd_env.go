@@ -74,43 +74,22 @@ func printEnv(t Target) {
 		log.Fatal("env command is not supported for Windows (use purego mode with embedded DLL)")
 	}
 
-	outputDirectory := getOutputDirectory(t)
-	linkFlags, err := extractLinkFlags(outputDirectory)
-	if err != nil {
-		log.Fatalf("failed to extract link flags: %v", err)
-	}
-
-	// Build CGO_LDFLAGS with library path and link flags
-	var ldFlags []string
-	libraryDirectory := filepath.Join(projectRoot, "lib", getLibraryDirectoryName(t))
-
-	if t.GOOS == "darwin" || t.GOOS == "ios" {
-		ldFlags = append(ldFlags, filepath.Join(libraryDirectory, "libcronet.a"))
-	} else {
-		ldFlags = append(ldFlags, "-L"+libraryDirectory, "-l:libcronet.a")
-	}
-
-	ldFlags = append(ldFlags, linkFlags.LDFlags...)
-	ldFlags = append(ldFlags, linkFlags.Libs...)
-	ldFlags = append(ldFlags, linkFlags.Frameworks...)
-
-	// Platform-specific linker flags
-	if t.GOOS == "linux" {
-		ldFlags = append(ldFlags, "-fuse-ld=lld")
-		if t.ARCH == "386" || t.ARCH == "arm" {
-			ldFlags = append(ldFlags, "-no-pie")
-		}
-		if t.Libc == "musl" {
-			ldFlags = append(ldFlags, "-static")
-		}
-	}
-
 	prefix := ""
 	if envExport {
 		prefix = "export "
 	}
 
-	fmt.Printf("%sCGO_LDFLAGS=%s\n", prefix, shellQuote(strings.Join(ldFlags, " ")))
+	// CGO_LDFLAGS: Only output toolchain flags that cannot be in #cgo LDFLAGS.
+	// Library paths and system libs are in the generated lib_*_cgo.go files.
+	if t.GOOS == "linux" {
+		var ldFlags []string
+		ldFlags = append(ldFlags, "-fuse-ld=lld")
+		if t.ARCH == "386" || t.ARCH == "arm" {
+			ldFlags = append(ldFlags, "-no-pie")
+		}
+		fmt.Printf("%sCGO_LDFLAGS=%s\n", prefix, shellQuote(strings.Join(ldFlags, " ")))
+	}
+	// Darwin/iOS: No CGO_LDFLAGS needed, all flags are in the generated cgo files
 
 	// Linux-specific: CC, CXX for cross-compilation, QEMU_LD_PREFIX for running binaries
 	if t.GOOS == "linux" {
