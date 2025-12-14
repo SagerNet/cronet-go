@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/url"
+	"sync"
 	"sync/atomic"
 
 	"github.com/sagernet/sing/common/bufio"
@@ -45,6 +46,7 @@ type NaiveClient struct {
 	engine                     Engine
 	streamEngine               StreamEngine
 	tcpForwarder               net.Listener
+	activeConnections          sync.WaitGroup
 }
 
 func NewNaiveClient(config NaiveClientConfig) (*NaiveClient, error) {
@@ -165,17 +167,23 @@ func (c *NaiveClient) DialContext(ctx context.Context, destination M.Socksaddr) 
 		concurrencyIndex := int(c.counter.Add(1) % uint64(c.concurrency))
 		headers["-network-isolation-key"] = F.ToString("https://pool-", concurrencyIndex, ":443")
 	}
+	c.activeConnections.Add(1)
 	conn := c.streamEngine.CreateConn(true, false)
 	err := conn.Start("CONNECT", c.serverURL, headers, 0, false)
 	if err != nil {
+		c.activeConnections.Done()
 		return nil, err
 	}
 
-	return NewNaiveConn(conn), nil
+	return &trackedNaiveConn{
+		NaiveConn: NewNaiveConn(conn),
+		onClose:   c.activeConnections.Done,
+	}, nil
 }
 
 func (c *NaiveClient) Close() error {
 	c.tcpForwarder.Close()
+	c.activeConnections.Wait()
 	c.engine.Shutdown()
 	c.engine.Destroy()
 	return nil
@@ -198,4 +206,15 @@ func (c *NaiveClient) forwardConnection(conn net.Conn) {
 		return
 	}
 	bufio.CopyConn(c.ctx, conn, serverConn)
+}
+
+type trackedNaiveConn struct {
+	*NaiveConn
+	onClose   func()
+	closeOnce sync.Once
+}
+
+func (c *trackedNaiveConn) Close() error {
+	c.closeOnce.Do(c.onClose)
+	return c.NaiveConn.Close()
 }
