@@ -156,11 +156,3 @@ func (c BidirectionalStream) Flush() {
 func (c BidirectionalStream) Cancel() {
 	C.bidirectional_stream_cancel((*C.bidirectional_stream)(unsafe.Pointer(c.ptr)))
 }
-
-// SetConcurrencyIndex sets the connection pool isolation index for insecure-concurrency feature.
-// index: 0 to N-1, consistent with naiveproxy's insecure-concurrency behavior.
-// Connections with the same index will reuse the same HTTP/2 connection.
-// Must be called before Start().
-func (c BidirectionalStream) SetConcurrencyIndex(index int) {
-	C.bidirectional_stream_set_concurrency_index((*C.bidirectional_stream)(unsafe.Pointer(c.ptr)), C.int(index))
-}

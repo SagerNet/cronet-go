@@ -106,7 +106,3 @@ func (s BidirectionalStream) Flush() {
 func (s BidirectionalStream) Cancel() {
 	cronet.BidirectionalStreamCancel(s.ptr)
 }
-
-func (s BidirectionalStream) SetConcurrencyIndex(index int) {
-	cronet.BidirectionalStreamSetConcurrencyIndex(s.ptr, int32(index))
-}

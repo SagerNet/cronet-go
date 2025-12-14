@@ -945,9 +945,6 @@ func registerSymbols() error {
 	if err := registerFunc(&bidirectionalStreamCancel, "bidirectional_stream_cancel"); err != nil {
 		return err
 	}
-	if err := registerFunc(&bidirectionalStreamSetConcurrencyIndex, "bidirectional_stream_set_concurrency_index"); err != nil {
-		return err
-	}
 
 	// Register float functions (platform-specific, see loader_windows_float*.go)
 	if err := registerFloatFuncs(); err != nil {

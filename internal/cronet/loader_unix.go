@@ -920,9 +920,6 @@ func registerSymbols() error {
 	if err := registerFunc(&bidirectionalStreamCancel, "bidirectional_stream_cancel"); err != nil {
 		return err
 	}
-	if err := registerFunc(&bidirectionalStreamSetConcurrencyIndex, "bidirectional_stream_set_concurrency_index"); err != nil {
-		return err
-	}
 
 	return nil
 }

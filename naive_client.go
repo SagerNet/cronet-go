@@ -161,8 +161,11 @@ func (c *NaiveClient) DialContext(ctx context.Context, destination M.Socksaddr) 
 		headers[key] = value
 	}
 
-	concurrencyIndex := int(c.counter.Add(1) % uint64(c.concurrency))
-	conn := c.streamEngine.CreateConn(true, false, concurrencyIndex)
+	if c.concurrency > 1 {
+		concurrencyIndex := int(c.counter.Add(1) % uint64(c.concurrency))
+		headers["-network-isolation-key"] = F.ToString("https://pool-", concurrencyIndex, ":443")
+	}
+	conn := c.streamEngine.CreateConn(true, false)
 	err := conn.Start("CONNECT", c.serverURL, headers, 0, false)
 	if err != nil {
 		return nil, err

@@ -16,7 +16,6 @@ type BidirectionalConn struct {
 	stream           BidirectionalStream
 	readWaitHeaders  bool
 	writeWaitHeaders bool
-	concurrencyIndex int
 	access           sync.Mutex
 	close            chan struct{}
 	done             chan struct{}
@@ -28,11 +27,10 @@ type BidirectionalConn struct {
 	headers          map[string]string
 }
 
-func (e StreamEngine) CreateConn(readWaitHeaders bool, writeWaitHeaders bool, concurrencyIndex int) *BidirectionalConn {
+func (e StreamEngine) CreateConn(readWaitHeaders bool, writeWaitHeaders bool) *BidirectionalConn {
 	conn := &BidirectionalConn{
 		readWaitHeaders:  readWaitHeaders,
 		writeWaitHeaders: writeWaitHeaders,
-		concurrencyIndex: concurrencyIndex,
 		close:            make(chan struct{}),
 		done:             make(chan struct{}),
 		ready:            make(chan struct{}),
@@ -53,9 +51,6 @@ func (c *BidirectionalConn) Start(method string, url string, headers map[string]
 	case <-c.done:
 		return net.ErrClosed
 	default:
-	}
-	if c.concurrencyIndex >= 0 {
-		c.stream.SetConcurrencyIndex(c.concurrencyIndex)
 	}
 	if !c.stream.Start(method, url, headers, priority, endOfStream) {
 		return os.ErrInvalid

@@ -308,7 +308,6 @@ var (
 	bidirectionalStreamWrite                         func(uintptr, uintptr, int32, bool) int32
 	bidirectionalStreamFlush                         func(uintptr)
 	bidirectionalStreamCancel                        func(uintptr)
-	bidirectionalStreamSetConcurrencyIndex           func(uintptr, int32)
 )
 
 // GoString converts a C string pointer to a Go string.

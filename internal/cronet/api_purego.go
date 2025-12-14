@@ -1041,7 +1041,3 @@ func BidirectionalStreamFlush(stream uintptr) {
 func BidirectionalStreamCancel(stream uintptr) {
 	bidirectionalStreamCancel(stream)
 }
-
-func BidirectionalStreamSetConcurrencyIndex(stream uintptr, index int32) {
-	bidirectionalStreamSetConcurrencyIndex(stream, index)
-}
