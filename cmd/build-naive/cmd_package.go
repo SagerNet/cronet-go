@@ -12,17 +12,21 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var commandPackage = &cobra.Command{
-	Use:   "package",
-	Short: "Package libraries and generate CGO config files",
-	Run: func(cmd *cobra.Command, args []string) {
-		targets := parseTargets()
-		packageTargets(targets)
-	},
-}
+var (
+	commandPackage = &cobra.Command{
+		Use:   "package",
+		Short: "Package libraries and generate CGO config files",
+		Run: func(cmd *cobra.Command, args []string) {
+			targets := parseTargets()
+			packageTargets(targets)
+		},
+	}
+	localMode bool
+)
 
 func init() {
 	mainCommand.AddCommand(commandPackage)
+	commandPackage.Flags().BoolVar(&localMode, "local", false, "Generate CGO files in main module for local testing")
 }
 
 func packageTargets(targets []Target) {
@@ -89,7 +93,11 @@ func packageTargets(targets []Target) {
 	}
 
 	generateCGOConfig()
-	generateSubmodules(targets)
+	if localMode {
+		generateLocalCGOFiles(targets)
+	} else {
+		generateSubmodules(targets)
+	}
 
 	log.Print("Package complete!")
 }
@@ -108,6 +116,59 @@ import "C"
 		log.Fatalf("failed to write include_cgo.go: %v", err)
 	}
 	log.Print("Generated include_cgo.go")
+}
+
+func generateLocalCGOFiles(targets []Target) {
+	for _, t := range targets {
+		if t.GOOS == "windows" {
+			log.Printf("Skipping local CGO file for %s (static linking not supported)", formatTargetLog(t))
+			continue
+		}
+
+		directoryName := getLibraryDirectoryName(t)
+		outputDirectory := getOutputDirectory(t)
+
+		linkFlags, err := extractLinkFlags(outputDirectory)
+		if err != nil {
+			log.Fatalf("failed to extract link flags for %s: %v", formatTargetLog(t), err)
+		}
+
+		buildTag := getBuildTag(t)
+
+		var ldFlags []string
+
+		libraryPath := fmt.Sprintf("${SRCDIR}/lib/%s/libcronet.a", directoryName)
+		if t.GOOS == "darwin" || t.GOOS == "ios" {
+			ldFlags = append(ldFlags, libraryPath)
+		} else {
+			ldFlags = append(ldFlags, fmt.Sprintf("-L${SRCDIR}/lib/%s", directoryName), "-l:libcronet.a")
+		}
+
+		ldFlags = append(ldFlags, linkFlags.LDFlags...)
+		ldFlags = append(ldFlags, linkFlags.Libs...)
+		ldFlags = append(ldFlags, linkFlags.Frameworks...)
+
+		if t.GOOS == "linux" && t.Libc == "musl" {
+			ldFlags = append(ldFlags, "-static")
+		}
+
+		cgoContent := fmt.Sprintf(`//go:build %s
+
+package cronet
+
+// #cgo LDFLAGS: %s
+import "C"
+`, buildTag, strings.Join(ldFlags, " "))
+
+		fileName := fmt.Sprintf("lib_%s_cgo.go", directoryName)
+		cgoPath := filepath.Join(projectRoot, fileName)
+		err = os.WriteFile(cgoPath, []byte(cgoContent), 0o644)
+		if err != nil {
+			log.Fatalf("failed to write %s: %v", fileName, err)
+		}
+
+		log.Printf("Generated %s", fileName)
+	}
 }
 
 func getLibraryDirectoryName(t Target) string {

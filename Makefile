@@ -1,6 +1,9 @@
+TARGET ?=
+TARGET_FLAG = $(if $(TARGET),--target=$(TARGET),)
+
 build:
-	go run -v ./cmd/build-naive build
-	go run -v ./cmd/build-naive package
+	go run -v ./cmd/build-naive build $(TARGET_FLAG)
+	go run -v ./cmd/build-naive package --local $(TARGET_FLAG)
 
 test: make
 	go test -v .

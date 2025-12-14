@@ -20,19 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - arch: amd64
-            clang_target: x86_64-linux-gnu
-            sysroot_arch: amd64
-          - arch: arm64
-            clang_target: aarch64-linux-gnu
-            sysroot_arch: arm64
-          - arch: "386"
-            clang_target: i686-linux-gnu
-            sysroot_arch: i386
-          - arch: arm
-            clang_target: arm-linux-gnueabihf
-            sysroot_arch: armhf
+        arch: [amd64, arm64, "386", arm]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -74,7 +62,7 @@ jobs:
         if: steps.build-cache.outputs.cache-hit != 'true'
         run: ccache -s
       - name: Package
-        run: go run ./cmd/build-naive --target=linux/${{ matrix.arch }} package
+        run: go run ./cmd/build-naive --target=linux/${{ matrix.arch }} package --local
       - name: Cache toolchain
         uses: actions/cache@v4
         with:
@@ -89,42 +77,28 @@ jobs:
         run: |
           sudo apt update
           sudo apt install -y qemu-user-binfmt
-      - name: Get CGO flags
-        id: cgo-flags
-        run: |
-          CGO_FLAGS=$(go run ./cmd/build-naive --target=linux/${{ matrix.arch }} cgo-flags)
-          echo "CGO_FLAGS: $CGO_FLAGS"
-          echo "flags=$CGO_FLAGS" >> $GITHUB_OUTPUT
       - name: Build test binary
         run: |
-          CLANG=$PWD/naiveproxy/src/third_party/llvm-build/Release+Asserts/bin/clang
-          SYSROOT=$PWD/naiveproxy/src/out/sysroot-build/bullseye/bullseye_${{ matrix.sysroot_arch }}_staging
-          CC="$CLANG --target=${{ matrix.clang_target }} --sysroot=$SYSROOT" \
-          CXX="$CLANG++ --target=${{ matrix.clang_target }} --sysroot=$SYSROOT" \
-          CGO_ENABLED=1 \
-          CGO_LDFLAGS="${{ steps.cgo-flags.outputs.flags }}" \
-          GOOS=linux \
-          GOARCH=${{ matrix.arch }} \
-          go test -c -o cronet.test .
+          eval $(go run ./cmd/build-naive --target=linux/${{ matrix.arch }} env --export)
+          CGO_ENABLED=1 GOOS=linux GOARCH=${{ matrix.arch }} go test -c -o cronet.test .
       - name: Run test binary
         run: |
+          eval $(go run ./cmd/build-naive --target=linux/${{ matrix.arch }} env --export)
           if [ "${{ matrix.arch }}" != "amd64" ] && [ "${{ matrix.arch }}" != "386" ]; then
-            export QEMU_LD_PREFIX=$PWD/naiveproxy/src/out/sysroot-build/bullseye/bullseye_${{ matrix.sysroot_arch }}_staging
+            export QEMU_LD_PREFIX
           fi
           ./cronet.test -test.v -test.run=TestEngineVersion
       - name: Build purego test binary
         if: matrix.arch == 'amd64' || matrix.arch == 'arm64'
         run: |
           cp lib/linux_${{ matrix.arch }}/libcronet.so .
-          CGO_ENABLED=0 \
-          GOOS=linux \
-          GOARCH=${{ matrix.arch }} \
-          go test -tags with_purego -c -o cronet.purego.test .
+          CGO_ENABLED=0 GOOS=linux GOARCH=${{ matrix.arch }} go test -tags with_purego -c -o cronet.purego.test .
       - name: Run purego test binary
         if: matrix.arch == 'amd64' || matrix.arch == 'arm64'
         run: |
           if [ "${{ matrix.arch }}" != "amd64" ]; then
-            export QEMU_LD_PREFIX=$PWD/naiveproxy/src/out/sysroot-build/bullseye/bullseye_${{ matrix.sysroot_arch }}_staging
+            eval $(go run ./cmd/build-naive --target=linux/${{ matrix.arch }} env --export)
+            export QEMU_LD_PREFIX
           fi
           export LD_LIBRARY_PATH=$PWD
           ./cronet.purego.test -test.v -test.run=TestEngineVersion
@@ -200,15 +174,11 @@ jobs:
         if: steps.build-cache.outputs.cache-hit != 'true'
         run: ccache -s
       - name: Package
-        run: go run ./cmd/build-naive --target=${{ matrix.target }} package
+        run: go run ./cmd/build-naive --target=${{ matrix.target }} package --local
       - name: Build and run test binary
-        if: startsWith(matrix.target, 'darwin/')
+        if: matrix.target == 'darwin/arm64'
         run: |
-          CGO_ENABLED=1 \
-          CGO_LDFLAGS="$(go run ./cmd/build-naive --target=${{ matrix.target }} cgo-flags)" \
-          GOOS=$(echo "${{ matrix.target }}" | cut -d/ -f1) \
-          GOARCH=$(echo "${{ matrix.target }}" | cut -d/ -f2) \
-          go test -c -o cronet.test .
+          CGO_ENABLED=1 go test -c -o cronet.test .
           ./cronet.test -test.v -test.run=TestEngineVersion
       - uses: actions/upload-artifact@v4
         with:
@@ -343,26 +313,16 @@ jobs:
         if: steps.build-cache.outputs.cache-hit != 'true'
         run: ccache -s
       - name: Package
-        run: go run ./cmd/build-naive --target=android/${{ matrix.arch }} package
+        run: go run ./cmd/build-naive --target=android/${{ matrix.arch }} package --local
       - name: Setup Android NDK
         uses: nttld/setup-ndk@v1
         id: setup-ndk
         with:
           ndk-version: r28
-      - name: Get CGO flags
-        id: cgo-flags
-        run: |
-          CGO_FLAGS=$(go run ./cmd/build-naive --target=android/${{ matrix.arch }} cgo-flags)
-          echo "CGO_FLAGS: $CGO_FLAGS"
-          echo "flags=$CGO_FLAGS" >> $GITHUB_OUTPUT
       - name: Build test binary
         run: |
           CC=${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/${{ matrix.cc }} \
-          CGO_ENABLED=1 \
-          CGO_LDFLAGS="${{ steps.cgo-flags.outputs.flags }}" \
-          GOOS=android \
-          GOARCH=${{ matrix.arch }} \
-          go test -c -o cronet.test .
+          CGO_ENABLED=1 GOOS=android GOARCH=${{ matrix.arch }} go test -c -o cronet.test .
       - uses: actions/upload-artifact@v4
         with:
           name: cronet-android-${{ matrix.arch }}
@@ -377,23 +337,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - arch: amd64
-            cpu: x64
-            clang_target: x86_64-openwrt-linux-musl
-            openwrt_arch: x86_64
-          - arch: arm64
-            cpu: arm64
-            clang_target: aarch64-openwrt-linux-musl
-            openwrt_arch: aarch64
-          - arch: "386"
-            cpu: x86
-            clang_target: i486-openwrt-linux-musl
-            openwrt_arch: i386_pentium4
-          - arch: arm
-            cpu: arm
-            clang_target: arm-openwrt-linux-musleabi
-            openwrt_arch: arm_cortex-a15_neon-vfpv4
+        arch: [amd64, arm64, "386", arm]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -435,7 +379,7 @@ jobs:
         if: steps.build-cache.outputs.cache-hit != 'true'
         run: ccache -s
       - name: Package
-        run: go run ./cmd/build-naive --target=linux/${{ matrix.arch }} --libc=musl package
+        run: go run ./cmd/build-naive --target=linux/${{ matrix.arch }} --libc=musl package --local
       - name: Cache toolchain
         uses: actions/cache@v4
         with:
@@ -450,23 +394,10 @@ jobs:
         run: |
           sudo apt update
           sudo apt install -y qemu-user-binfmt
-      - name: Get CGO flags
-        id: cgo-flags
-        run: |
-          CGO_FLAGS=$(go run ./cmd/build-naive --target=linux/${{ matrix.arch }} --libc=musl cgo-flags)
-          echo "CGO_FLAGS: $CGO_FLAGS"
-          echo "flags=$CGO_FLAGS" >> $GITHUB_OUTPUT
       - name: Build test binary
         run: |
-          CLANG=$PWD/naiveproxy/src/third_party/llvm-build/Release+Asserts/bin/clang
-          SYSROOT=$PWD/naiveproxy/src/out/sysroot-build/openwrt/23.05.5/${{ matrix.openwrt_arch }}
-          CC="$CLANG --target=${{ matrix.clang_target }} --sysroot=$SYSROOT" \
-          CXX="$CLANG++ --target=${{ matrix.clang_target }} --sysroot=$SYSROOT" \
-          CGO_ENABLED=1 \
-          CGO_LDFLAGS="${{ steps.cgo-flags.outputs.flags }}" \
-          GOOS=linux \
-          GOARCH=${{ matrix.arch }} \
-          go test -c -o cronet.test .
+          eval $(go run ./cmd/build-naive --target=linux/${{ matrix.arch }} --libc=musl env --export)
+          CGO_ENABLED=1 GOOS=linux GOARCH=${{ matrix.arch }} go test -c -o cronet.test .
       - name: Run test binary
         continue-on-error: true  # musl/QEMU test is flaky, don't block CI
         run: |

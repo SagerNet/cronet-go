@@ -10,3 +10,4 @@ CLAUDE.md
 /lib/
 /include/
 /cgo_*.go
+/lib_*_cgo.go
