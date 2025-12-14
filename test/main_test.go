@@ -213,6 +213,51 @@ func TestNaivePublicKeySHA256(t *testing.T) {
 	require.Equal(t, testData, buf)
 }
 
+// TestNaiveCloseWhileReading tests that Close() works correctly when
+// reads are in progress. This verifies the fix for buffer lifetime issues.
+func TestNaiveCloseWhileReading(t *testing.T) {
+	env := setupTestEnv(t)
+	client := env.newNaiveClient(t, cronet.NaiveClientConfig{})
+	startEchoServer(t, 16000)
+
+	const iterations = 20
+
+	for i := 0; i < iterations; i++ {
+		func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			conn, err := client.DialContext(ctx, M.ParseSocksaddrHostPort("127.0.0.1", 16000))
+			if err != nil {
+				t.Logf("iteration %d: dial failed: %v", i, err)
+				return
+			}
+
+			// Write some data to trigger response
+			testData := make([]byte, 64)
+			rand.Read(testData)
+			conn.Write(testData)
+
+			readDone := make(chan struct{})
+			go func() {
+				defer close(readDone)
+				buf := make([]byte, 32)
+				conn.Read(buf)
+			}()
+
+			// Close immediately while read might be in progress
+			time.Sleep(time.Millisecond)
+			conn.Close()
+
+			select {
+			case <-readDone:
+			case <-time.After(3 * time.Second):
+				t.Fatalf("iteration %d: Read did not return after Close", i)
+			}
+		}()
+	}
+}
+
 // Naive server (sing-box) utilities
 
 func ensureNaiveServer(t *testing.T) string {

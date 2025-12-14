@@ -25,6 +25,14 @@ type BidirectionalConn struct {
 	read             chan int
 	write            chan struct{}
 	headers          map[string]string
+
+	// Buffer safety: when Read/Write return due to close/done, Cronet may
+	// still hold the buffer. These channels are closed by callbacks to signal
+	// it's safe to return. sync.Once ensures close happens exactly once.
+	readDone     chan struct{}
+	writeDone    chan struct{}
+	readDoneOnce  sync.Once
+	writeDoneOnce sync.Once
 }
 
 func (e StreamEngine) CreateConn(readWaitHeaders bool, writeWaitHeaders bool) *BidirectionalConn {
@@ -37,6 +45,8 @@ func (e StreamEngine) CreateConn(readWaitHeaders bool, writeWaitHeaders bool) *B
 		handshake:        make(chan struct{}),
 		read:             make(chan int),
 		write:            make(chan struct{}),
+		readDone:         make(chan struct{}, 1),
+		writeDone:        make(chan struct{}, 1),
 	}
 	conn.stream = e.CreateStream(&bidirectionalHandler{BidirectionalConn: conn})
 	return conn
@@ -88,8 +98,10 @@ func (c *BidirectionalConn) Read(p []byte) (n int, err error) {
 
 	select {
 	case <-c.close:
+		c.access.Unlock()
 		return 0, net.ErrClosed
 	case <-c.done:
+		c.access.Unlock()
 		return 0, net.ErrClosed
 	default:
 	}
@@ -101,7 +113,14 @@ func (c *BidirectionalConn) Read(p []byte) (n int, err error) {
 	case bytesRead := <-c.read:
 		return bytesRead, nil
 	case <-c.done:
+		// Wait for Cronet to finish using the buffer before returning.
+		// Callbacks will close readDone when done.
+		<-c.readDone
 		return 0, c.err
+	case <-c.close:
+		// Close() was called. Wait for OnCanceled to signal buffer safety.
+		<-c.readDone
+		return 0, net.ErrClosed
 	}
 }
 
@@ -135,8 +154,10 @@ func (c *BidirectionalConn) Write(p []byte) (n int, err error) {
 
 	select {
 	case <-c.close:
+		c.access.Unlock()
 		return 0, net.ErrClosed
 	case <-c.done:
+		c.access.Unlock()
 		return 0, net.ErrClosed
 	default:
 	}
@@ -148,7 +169,14 @@ func (c *BidirectionalConn) Write(p []byte) (n int, err error) {
 	case <-c.write:
 		return len(p), nil
 	case <-c.done:
+		// Wait for Cronet to finish using the buffer before returning.
+		// Callbacks will close writeDone when done.
+		<-c.writeDone
 		return 0, c.err
+	case <-c.close:
+		// Close() was called. Wait for OnCanceled to signal buffer safety.
+		<-c.writeDone
+		return 0, net.ErrClosed
 	}
 }
 
@@ -165,19 +193,32 @@ func (c *BidirectionalConn) Err() error {
 // Close implements io.Closer
 func (c *BidirectionalConn) Close() error {
 	c.access.Lock()
-	defer c.access.Unlock()
 
 	select {
 	case <-c.close:
+		c.access.Unlock()
 		return net.ErrClosed
 	case <-c.done:
+		c.access.Unlock()
 		return net.ErrClosed
 	default:
 	}
 
 	close(c.close)
+	c.access.Unlock()
+
+	// Cancel must be called without holding the mutex to avoid deadlock
+	// with callbacks (OnCanceled -> bidirectionalHandler.Close -> mutex)
 	c.stream.Cancel()
 	return nil
+}
+
+func (c *BidirectionalConn) signalReadDone() {
+	c.readDoneOnce.Do(func() { close(c.readDone) })
+}
+
+func (c *BidirectionalConn) signalWriteDone() {
+	c.writeDoneOnce.Do(func() { close(c.writeDone) })
 }
 
 // LocalAddr implements net.Conn
@@ -243,11 +284,14 @@ func (c *bidirectionalHandler) OnReadCompleted(stream BidirectionalStream, bytes
 
 	if c.err != nil {
 		c.access.Unlock()
+		c.signalReadDone()
 		return
 	}
 
 	if bytesRead == 0 {
 		c.access.Unlock()
+		c.signalReadDone()
+		c.signalWriteDone()
 		c.Close(stream, io.EOF)
 		return
 	}
@@ -256,7 +300,9 @@ func (c *bidirectionalHandler) OnReadCompleted(stream BidirectionalStream, bytes
 
 	select {
 	case <-c.close:
+		c.signalReadDone()
 	case <-c.done:
+		c.signalReadDone()
 	case c.read <- bytesRead:
 	}
 }
@@ -266,6 +312,7 @@ func (c *bidirectionalHandler) OnWriteCompleted(stream BidirectionalStream) {
 
 	if c.err != nil {
 		c.access.Unlock()
+		c.signalWriteDone()
 		return
 	}
 
@@ -273,7 +320,9 @@ func (c *bidirectionalHandler) OnWriteCompleted(stream BidirectionalStream) {
 
 	select {
 	case <-c.close:
+		c.signalWriteDone()
 	case <-c.done:
+		c.signalWriteDone()
 	case c.write <- struct{}{}:
 	}
 }
@@ -282,14 +331,20 @@ func (c *bidirectionalHandler) OnResponseTrailersReceived(stream BidirectionalSt
 }
 
 func (c *bidirectionalHandler) OnSucceeded(stream BidirectionalStream) {
+	c.signalReadDone()
+	c.signalWriteDone()
 	c.Close(stream, io.EOF)
 }
 
 func (c *bidirectionalHandler) OnFailed(stream BidirectionalStream, netError int) {
+	c.signalReadDone()
+	c.signalWriteDone()
 	c.Close(stream, errors.New("network error "+strconv.Itoa(netError)))
 }
 
 func (c *bidirectionalHandler) OnCanceled(stream BidirectionalStream) {
+	c.signalReadDone()
+	c.signalWriteDone()
 	c.Close(stream, context.Canceled)
 }
 
