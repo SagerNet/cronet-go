@@ -257,22 +257,24 @@ func (c *bidirectionalHandler) OnReadCompleted(stream BidirectionalStream, bytes
 		return
 	}
 
+	c.access.Unlock()
+
 	select {
 	case <-c.close:
 	case <-c.done:
 	case c.read <- bytesRead:
 	}
-
-	c.access.Unlock()
 }
 
 func (c *bidirectionalHandler) OnWriteCompleted(stream BidirectionalStream) {
 	c.access.Lock()
-	defer c.access.Unlock()
 
 	if c.err != nil {
+		c.access.Unlock()
 		return
 	}
+
+	c.access.Unlock()
 
 	select {
 	case <-c.close:
