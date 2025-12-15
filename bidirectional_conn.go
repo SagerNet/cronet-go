@@ -26,6 +26,18 @@ type BidirectionalConn struct {
 	write            chan struct{}
 	headers          map[string]string
 
+	// readSemaphore/writeSemaphore ensure that only one Read/Write operation is
+	// in-flight at a time. This is required for Cronet and prevents reuse of
+	// internal buffers while Cronet still holds pointers to them.
+	readSemaphore  chan struct{}
+	writeSemaphore chan struct{}
+
+	// Cronet holds pointers to the Read/Write buffers asynchronously until the
+	// corresponding callback fires. Never pass caller-provided buffers directly,
+	// as they might reside on the Go stack and be moved during stack growth.
+	readBuffer  []byte
+	writeBuffer []byte
+
 	// Buffer safety: when Read/Write return due to close/done, Cronet may
 	// still hold the buffer. These channels are closed by callbacks to signal
 	// it's safe to return. sync.Once ensures close happens exactly once.
@@ -45,9 +57,13 @@ func (e StreamEngine) CreateConn(readWaitHeaders bool, writeWaitHeaders bool) *B
 		handshake:        make(chan struct{}),
 		read:             make(chan int),
 		write:            make(chan struct{}),
+		readSemaphore:    make(chan struct{}, 1),
+		writeSemaphore:   make(chan struct{}, 1),
 		readDone:         make(chan struct{}, 1),
 		writeDone:        make(chan struct{}, 1),
 	}
+	conn.readSemaphore <- struct{}{}
+	conn.writeSemaphore <- struct{}{}
 	conn.stream = e.CreateStream(&bidirectionalHandler{BidirectionalConn: conn})
 	return conn
 }
@@ -77,6 +93,18 @@ func (c *BidirectionalConn) Read(p []byte) (n int, err error) {
 		return 0, net.ErrClosed
 	default:
 	}
+	if len(p) == 0 {
+		return 0, nil
+	}
+
+	select {
+	case <-c.close:
+		return 0, net.ErrClosed
+	case <-c.done:
+		return 0, net.ErrClosed
+	case <-c.readSemaphore:
+	}
+	defer func() { c.readSemaphore <- struct{}{} }()
 
 	if c.readWaitHeaders {
 		select {
@@ -106,11 +134,21 @@ func (c *BidirectionalConn) Read(p []byte) (n int, err error) {
 	default:
 	}
 
-	c.stream.Read(p)
+	if len(c.readBuffer) < len(p) {
+		c.readBuffer = make([]byte, len(p))
+	}
+	readBuffer := c.readBuffer[:len(p)]
+	c.stream.Read(readBuffer)
 	c.access.Unlock()
 
 	select {
 	case bytesRead := <-c.read:
+		if bytesRead > len(p) {
+			bytesRead = len(p)
+		}
+		if bytesRead > 0 {
+			copy(p, readBuffer[:bytesRead])
+		}
 		return bytesRead, nil
 	case <-c.done:
 		// Wait for Cronet to finish using the buffer before returning.
@@ -133,6 +171,18 @@ func (c *BidirectionalConn) Write(p []byte) (n int, err error) {
 		return 0, net.ErrClosed
 	default:
 	}
+	if len(p) == 0 {
+		return 0, nil
+	}
+
+	select {
+	case <-c.close:
+		return 0, net.ErrClosed
+	case <-c.done:
+		return 0, net.ErrClosed
+	case <-c.writeSemaphore:
+	}
+	defer func() { c.writeSemaphore <- struct{}{} }()
 
 	if c.writeWaitHeaders {
 		select {
@@ -162,7 +212,12 @@ func (c *BidirectionalConn) Write(p []byte) (n int, err error) {
 	default:
 	}
 
-	c.stream.Write(p, false)
+	if len(c.writeBuffer) < len(p) {
+		c.writeBuffer = make([]byte, len(p))
+	}
+	writeBuffer := c.writeBuffer[:len(p)]
+	copy(writeBuffer, p)
+	c.stream.Write(writeBuffer, false)
 	c.access.Unlock()
 
 	select {
