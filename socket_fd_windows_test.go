@@ -89,7 +89,7 @@ func TestDupSocketFD(t *testing.T) {
 	}
 
 	// Clean up
-	windows.CloseHandle(windows.Handle(fd))
+	_ = windows.Closesocket(windows.Handle(fd))
 }
 
 func TestCreateSocketPair(t *testing.T) {
@@ -97,7 +97,7 @@ func TestCreateSocketPair(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer windows.CloseHandle(windows.Handle(fd))
+	defer windows.Closesocket(windows.Handle(fd))
 	defer conn.Close()
 
 	if fd < 0 {
@@ -160,7 +160,7 @@ func TestCreateSocketPair_MultipleCreation(t *testing.T) {
 
 	// Clean up
 	for _, pair := range pairs {
-		windows.CloseHandle(windows.Handle(pair.fd))
+		_ = windows.Closesocket(windows.Handle(pair.fd))
 		pair.conn.Close()
 	}
 }
