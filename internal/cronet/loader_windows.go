@@ -264,6 +264,9 @@ func registerSymbols() error {
 	if err := registerFunc(&cronetEngineSetMockCertVerifierForTesting, "Cronet_Engine_SetMockCertVerifierForTesting"); err != nil {
 		return err
 	}
+	if err := registerFunc(&cronetEngineSetDialer, "Cronet_Engine_SetDialer"); err != nil {
+		return err
+	}
 
 	// EngineParams
 	if err := registerFunc(&cronetEngineParamsCreate, "Cronet_EngineParams_Create"); err != nil {

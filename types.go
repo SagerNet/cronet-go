@@ -279,3 +279,15 @@ const (
 	// The request was canceled.
 	URLRequestFinishedInfoFinishedReasonCanceled URLRequestFinishedInfoFinishedReason = 2
 )
+
+// Dialer is a callback function for custom TCP connection establishment.
+// address: IP address string (e.g. "1.2.3.4" or "::1")
+// port: Port number
+// Returns: connected socket fd on success, negative net error code on failure.
+// Common error codes:
+//
+//	ERR_CONNECTION_REFUSED (-102)
+//	ERR_CONNECTION_FAILED (-104)
+//	ERR_ADDRESS_UNREACHABLE (-109)
+//	ERR_CONNECTION_TIMED_OUT (-118)
+type Dialer func(address string, port uint16) int

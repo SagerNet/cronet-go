@@ -30,6 +30,7 @@ import (
 	cronet "github.com/sagernet/cronet-go"
 	"github.com/sagernet/sing/common/bufio"
 	M "github.com/sagernet/sing/common/metadata"
+
 	"github.com/stretchr/testify/require"
 	"go.uber.org/goleak"
 )
@@ -101,7 +102,27 @@ func startEchoServer(t *testing.T, port uint16) {
 			}
 			go func(c net.Conn) {
 				defer c.Close()
-				io.Copy(c, c)
+				var transferred int64
+				buffer := make([]byte, 32*1024)
+				for {
+					n, readErr := c.Read(buffer)
+					if n > 0 {
+						transferred += int64(n)
+						_, writeErr := c.Write(buffer[:n])
+						if writeErr != nil {
+							return
+						}
+					}
+					if readErr != nil {
+						if readErr != io.EOF && testing.Verbose() {
+							t.Logf("echo server read error: %v", readErr)
+						}
+						break
+					}
+				}
+				if testing.Verbose() {
+					t.Logf("echo server connection closed, bytes=%d", transferred)
+				}
 			}(conn)
 		}
 	}()
@@ -113,7 +134,7 @@ func TestNaiveBasic(t *testing.T) {
 	client := env.newNaiveClient(t, cronet.NaiveClientConfig{})
 	startEchoServer(t, 15000)
 
-	conn, err := client.DialContext(context.Background(), M.ParseSocksaddrHostPort("127.0.0.1", 15000))
+	conn, err := client.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", 15000))
 	require.NoError(t, err)
 	defer conn.Close()
 
@@ -199,7 +220,7 @@ func TestNaivePublicKeySHA256(t *testing.T) {
 	})
 	startEchoServer(t, 15001)
 
-	conn, err := client.DialContext(context.Background(), M.ParseSocksaddrHostPort("127.0.0.1", 15001))
+	conn, err := client.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", 15001))
 	require.NoError(t, err)
 	defer conn.Close()
 
@@ -227,7 +248,7 @@ func TestNaiveCloseWhileReading(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
-			conn, err := client.DialContext(ctx, M.ParseSocksaddrHostPort("127.0.0.1", 16000))
+			conn, err := client.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", 16000))
 			if err != nil {
 				t.Logf("iteration %d: dial failed: %v", i, err)
 				return
@@ -262,7 +283,7 @@ func TestNaiveCloseWhileReading(t *testing.T) {
 
 func ensureNaiveServer(t *testing.T) string {
 	binDirectory := "bin"
-	err := os.MkdirAll(binDirectory, 0755)
+	err := os.MkdirAll(binDirectory, 0o755)
 	require.NoError(t, err)
 
 	binaryName := "sing-box"
@@ -315,7 +336,7 @@ func ensureNaiveServer(t *testing.T) string {
 
 	// Make executable on Unix
 	if runtime.GOOS != "windows" {
-		err = os.Chmod(binaryPath, 0755)
+		err = os.Chmod(binaryPath, 0o755)
 		require.NoError(t, err)
 	}
 
@@ -394,7 +415,7 @@ func startNaiveServer(t *testing.T, certPem, keyPem string) {
 
 	// Write to temp config file
 	configPath := filepath.Join(t.TempDir(), "sing-box.json")
-	err = os.WriteFile(configPath, []byte(config), 0644)
+	err = os.WriteFile(configPath, []byte(config), 0o644)
 	require.NoError(t, err)
 
 	cmd := exec.Command(binary, "run", "-c", configPath)
@@ -479,7 +500,7 @@ func (f *Forwarder) acceptLoop() {
 func (f *Forwarder) handleConnection(conn net.Conn) {
 	defer conn.Close()
 
-	remoteConn, err := f.naiveClient.DialContext(f.ctx, M.ParseSocksaddrHostPort("127.0.0.1", f.targetPort))
+	remoteConn, err := f.naiveClient.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", f.targetPort))
 	if err != nil {
 		return
 	}
@@ -528,7 +549,7 @@ func generateCertificate(t *testing.T, domain string) (caPem, certPem, keyPem st
 	require.NoError(t, err)
 
 	caPem = filepath.Join(tempDir, "ca.pem")
-	err = os.WriteFile(caPem, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caCert}), 0644)
+	err = os.WriteFile(caPem, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caCert}), 0o644)
 	require.NoError(t, err)
 
 	// Server key
@@ -550,13 +571,13 @@ func generateCertificate(t *testing.T, domain string) (caPem, certPem, keyPem st
 	require.NoError(t, err)
 
 	certPem = filepath.Join(tempDir, "cert.pem")
-	err = os.WriteFile(certPem, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: serverCert}), 0644)
+	err = os.WriteFile(certPem, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: serverCert}), 0o644)
 	require.NoError(t, err)
 
 	keyPem = filepath.Join(tempDir, "key.pem")
 	keyDER, err := x509.MarshalPKCS8PrivateKey(serverKey)
 	require.NoError(t, err)
-	err = os.WriteFile(keyPem, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}), 0644)
+	err = os.WriteFile(keyPem, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}), 0o644)
 	require.NoError(t, err)
 
 	return

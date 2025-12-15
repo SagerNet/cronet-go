@@ -3,16 +3,40 @@
 package cronet
 
 import (
+	"sync"
 	"unsafe"
 
 	"github.com/sagernet/cronet-go/internal/cronet"
+
+	"github.com/ebitengine/purego"
 )
+
+var (
+	dialerAccess   sync.RWMutex
+	dialerMap      = make(map[uintptr]Dialer)
+	dialerCallback uintptr
+)
+
+func init() {
+	dialerCallback = purego.NewCallback(func(context uintptr, address uintptr, port uint16) int {
+		dialerAccess.RLock()
+		dialer, ok := dialerMap[context]
+		dialerAccess.RUnlock()
+		if !ok {
+			return -104 // ERR_CONNECTION_FAILED
+		}
+		return dialer(cronet.GoString(address), port)
+	})
+}
 
 func NewEngine() Engine {
 	return Engine{cronet.EngineCreate()}
 }
 
 func (e Engine) Destroy() {
+	dialerAccess.Lock()
+	delete(dialerMap, e.ptr)
+	dialerAccess.Unlock()
 	cronet.EngineDestroy(e.ptr)
 }
 
@@ -155,4 +179,23 @@ func (e Engine) SetCertVerifierWithPublicKeySHA256(hashes [][]byte) bool {
 	}
 	cronet.EngineSetMockCertVerifierForTesting(e.ptr, certVerifier)
 	return true
+}
+
+// SetDialer sets a custom dialer for TCP connections.
+// When set, the engine will use this callback to establish TCP connections
+// instead of the default system socket API.
+// Must be called before StartWithParams().
+// Pass nil to disable custom dialing.
+func (e Engine) SetDialer(dialer Dialer) {
+	if dialer == nil {
+		cronet.EngineSetDialer(e.ptr, 0, 0)
+		dialerAccess.Lock()
+		delete(dialerMap, e.ptr)
+		dialerAccess.Unlock()
+		return
+	}
+	dialerAccess.Lock()
+	dialerMap[e.ptr] = dialer
+	dialerAccess.Unlock()
+	cronet.EngineSetDialer(e.ptr, dialerCallback, e.ptr)
 }

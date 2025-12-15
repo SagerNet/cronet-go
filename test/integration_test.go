@@ -1,0 +1,386 @@
+package test
+
+import (
+	"bytes"
+	"context"
+	"crypto/rand"
+	"errors"
+	"io"
+	"net"
+	"sync"
+	"sync/atomic"
+	"syscall"
+	"testing"
+	"time"
+
+	cronet "github.com/sagernet/cronet-go"
+	M "github.com/sagernet/sing/common/metadata"
+	N "github.com/sagernet/sing/common/network"
+
+	"github.com/stretchr/testify/require"
+)
+
+// wrappedConn wraps a net.Conn but is NOT a *net.TCPConn,
+// forcing the fallback path (socket pair proxy) in NaiveClient.
+type wrappedConn struct {
+	net.Conn
+}
+
+func (w *wrappedConn) SyscallConn() (syscall.RawConn, error) {
+	if conn, ok := w.Conn.(syscall.Conn); ok {
+		return conn.SyscallConn()
+	}
+	return nil, syscall.EINVAL
+}
+
+// trackingDialer tracks dial calls and can wrap connections.
+type trackingDialer struct {
+	underlying N.Dialer
+	dialCount  atomic.Int64
+	wrapConn   bool // if true, wrap connections to force fallback path
+}
+
+func (d *trackingDialer) DialContext(ctx context.Context, network string, destination M.Socksaddr) (net.Conn, error) {
+	d.dialCount.Add(1)
+	conn, err := d.underlying.DialContext(ctx, network, destination)
+	if err != nil {
+		return nil, err
+	}
+	if d.wrapConn {
+		return &wrappedConn{Conn: conn}, nil
+	}
+	return conn, nil
+}
+
+func (d *trackingDialer) ListenPacket(ctx context.Context, destination M.Socksaddr) (net.PacketConn, error) {
+	return d.underlying.ListenPacket(ctx, destination)
+}
+
+// errorDialer always returns errors for testing error handling.
+type errorDialer struct {
+	err error
+}
+
+func (d *errorDialer) DialContext(ctx context.Context, network string, destination M.Socksaddr) (net.Conn, error) {
+	return nil, d.err
+}
+
+func (d *errorDialer) ListenPacket(ctx context.Context, destination M.Socksaddr) (net.PacketConn, error) {
+	return nil, d.err
+}
+
+// TestNaiveCustomDialer verifies that a custom dialer is properly used.
+func TestNaiveCustomDialer(t *testing.T) {
+	env := setupTestEnv(t)
+	startEchoServer(t, 17000)
+
+	dialer := &trackingDialer{
+		underlying: N.SystemDialer,
+		wrapConn:   false,
+	}
+
+	client := env.newNaiveClient(t, cronet.NaiveClientConfig{
+		Dialer: dialer,
+	})
+
+	// Make a connection
+	conn, err := client.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", 17000))
+	require.NoError(t, err)
+	defer conn.Close()
+
+	// Verify connection works (this triggers the actual TCP connection)
+	testData := []byte("Custom dialer test!")
+	_, err = conn.Write(testData)
+	require.NoError(t, err)
+
+	buf := make([]byte, len(testData))
+	_, err = io.ReadFull(conn, buf)
+	require.NoError(t, err)
+	require.Equal(t, testData, buf)
+
+	// Verify dialer was called (check after I/O since connection is established lazily)
+	require.Greater(t, dialer.dialCount.Load(), int64(0), "custom dialer should have been called")
+}
+
+// TestNaivePipeProxy tests the socket pair proxy fallback path.
+// This is triggered when the connection is not a *net.TCPConn.
+func TestNaivePipeProxy(t *testing.T) {
+	env := setupTestEnv(t)
+	startEchoServer(t, 17001)
+
+	dialer := &trackingDialer{
+		underlying: N.SystemDialer,
+		wrapConn:   true, // Force wrapped connections to trigger fallback path
+	}
+
+	client := env.newNaiveClient(t, cronet.NaiveClientConfig{
+		Dialer: dialer,
+	})
+
+	// Make a connection through the proxy path
+	conn, err := client.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", 17001))
+	require.NoError(t, err)
+	defer conn.Close()
+
+	// Verify data transfer works through the proxy path
+	testData := []byte("Pipe proxy test data!")
+	_, err = conn.Write(testData)
+	require.NoError(t, err)
+
+	buf := make([]byte, len(testData))
+	_, err = io.ReadFull(conn, buf)
+	require.NoError(t, err)
+	require.Equal(t, testData, buf)
+
+	// Test multiple round trips
+	for i := 0; i < 10; i++ {
+		data := []byte("Round trip " + string(rune('0'+i)))
+		_, err = conn.Write(data)
+		require.NoError(t, err)
+
+		readBuf := make([]byte, len(data))
+		_, err = io.ReadFull(conn, readBuf)
+		require.NoError(t, err)
+		require.Equal(t, data, readBuf)
+	}
+}
+
+// TestNaiveDialError tests error handling when dial fails.
+func TestNaiveDialError(t *testing.T) {
+	env := setupTestEnv(t)
+
+	testCases := []struct {
+		name string
+		err  error
+	}{
+		{"connection refused", errors.New("connection refused")},
+		{"timeout", errors.New("i/o timeout")},
+		{"network unreachable", errors.New("network is unreachable")},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			client := env.newNaiveClient(t, cronet.NaiveClientConfig{
+				Dialer: &errorDialer{err: tc.err},
+			})
+
+			// Attempting to dial should fail
+			conn, err := client.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", 17002))
+			require.NoError(t, err)
+			err = conn.Handshake()
+			require.Error(t, err, "expected dial to fail with %s", tc.name)
+			conn.Close()
+		})
+	}
+}
+
+// TestNaiveLargeTransfer tests data integrity with large transfers.
+func TestNaiveLargeTransfer(t *testing.T) {
+	env := setupTestEnv(t)
+	startEchoServer(t, 17003)
+
+	client := env.newNaiveClient(t, cronet.NaiveClientConfig{})
+
+	conn, err := client.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", 17003))
+	require.NoError(t, err)
+	defer conn.Close()
+
+	// Generate 1MB of random data
+	const dataSize = 1024 * 1024
+	testData := make([]byte, dataSize)
+	_, err = rand.Read(testData)
+	require.NoError(t, err)
+
+	// Write in background
+	writeDone := make(chan error, 1)
+	go func() {
+		_, err := conn.Write(testData)
+		writeDone <- err
+	}()
+
+	// Read all data back
+	receivedData := make([]byte, dataSize)
+	_, err = io.ReadFull(conn, receivedData)
+	require.NoError(t, err)
+
+	// Wait for write to complete
+	require.NoError(t, <-writeDone)
+
+	// Verify data integrity
+	require.True(t, bytes.Equal(testData, receivedData), "data mismatch in large transfer")
+}
+
+// TestNaiveRapidOpenClose tests stability with rapid connection open/close cycles.
+func TestNaiveRapidOpenClose(t *testing.T) {
+	env := setupTestEnv(t)
+	startEchoServer(t, 17004)
+
+	client := env.newNaiveClient(t, cronet.NaiveClientConfig{})
+
+	const iterations = 50
+
+	for i := 0; i < iterations; i++ {
+		func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			conn, err := client.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", 17004))
+			if err != nil {
+				t.Logf("iteration %d: dial failed (acceptable): %v", i, err)
+				return
+			}
+
+			// Quick write/read cycle
+			testData := []byte("rapid test")
+			conn.Write(testData)
+
+			buf := make([]byte, len(testData))
+			io.ReadFull(conn, buf)
+
+			conn.Close()
+		}()
+	}
+}
+
+// TestNaiveGracefulShutdown tests that Close() properly waits for all connections.
+func TestNaiveGracefulShutdown(t *testing.T) {
+	env := setupTestEnv(t)
+	startEchoServer(t, 17005)
+
+	// Use wrapped dialer to force proxy path which has more cleanup work
+	dialer := &trackingDialer{
+		underlying: N.SystemDialer,
+		wrapConn:   true,
+	}
+
+	config := cronet.NaiveClientConfig{
+		ServerAddress: M.ParseSocksaddrHostPort("127.0.0.1", naiveServerPort),
+		ServerName:    "example.org",
+		Username:      "test",
+		Password:      "test",
+		Dialer:        dialer,
+	}
+	config.TrustedRootCertificates = string(env.caPEM)
+
+	client, err := cronet.NewNaiveClient(config)
+	require.NoError(t, err)
+	require.NoError(t, client.Start())
+
+	const connectionCount = 5
+	var wg sync.WaitGroup
+	conns := make([]net.Conn, connectionCount)
+
+	// Open multiple connections
+	for i := 0; i < connectionCount; i++ {
+		conn, err := client.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", 17005))
+		require.NoError(t, err)
+		conns[i] = conn
+
+		// Start background activity on each connection
+		wg.Add(1)
+		go func(c net.Conn, idx int) {
+			defer wg.Done()
+			for j := 0; j < 5; j++ {
+				data := []byte("activity")
+				if _, err := c.Write(data); err != nil {
+					return
+				}
+				buf := make([]byte, len(data))
+				if _, err := io.ReadFull(c, buf); err != nil {
+					return
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+		}(conn, i)
+	}
+
+	// Wait a bit for activity to start
+	time.Sleep(50 * time.Millisecond)
+
+	// Close all connections first
+	for _, conn := range conns {
+		conn.Close()
+	}
+
+	// Wait for goroutines to finish
+	wg.Wait()
+
+	// Now close the client - this should complete without hanging
+	closeDone := make(chan struct{})
+	go func() {
+		client.Close()
+		close(closeDone)
+	}()
+
+	select {
+	case <-closeDone:
+		// Success
+	case <-time.After(10 * time.Second):
+		t.Fatal("client.Close() timed out - possible resource leak")
+	}
+}
+
+// TestNaivePipeProxyMultipleConnections tests multiple simultaneous connections
+// through the proxy path.
+func TestNaivePipeProxyMultipleConnections(t *testing.T) {
+	env := setupTestEnv(t)
+	startEchoServer(t, 17006)
+
+	dialer := &trackingDialer{
+		underlying: N.SystemDialer,
+		wrapConn:   true,
+	}
+
+	client := env.newNaiveClient(t, cronet.NaiveClientConfig{
+		Dialer: dialer,
+	})
+
+	const connectionCount = 10
+	var wg sync.WaitGroup
+	errChannel := make(chan error, connectionCount)
+
+	for i := 0; i < connectionCount; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+
+			conn, err := client.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", 17006))
+			if err != nil {
+				errChannel <- err
+				return
+			}
+			defer conn.Close()
+
+			// Send unique data
+			testData := make([]byte, 100)
+			for j := range testData {
+				testData[j] = byte(idx)
+			}
+
+			_, err = conn.Write(testData)
+			if err != nil {
+				errChannel <- err
+				return
+			}
+
+			buf := make([]byte, len(testData))
+			_, err = io.ReadFull(conn, buf)
+			if err != nil {
+				errChannel <- err
+				return
+			}
+
+			if !bytes.Equal(testData, buf) {
+				errChannel <- errors.New("data mismatch")
+				return
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	close(errChannel)
+
+	for err := range errChannel {
+		t.Errorf("connection error: %v", err)
+	}
+}

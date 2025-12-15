@@ -69,6 +69,10 @@ func EngineSetMockCertVerifierForTesting(engine, certVerifier uintptr) {
 	cronetEngineSetMockCertVerifierForTesting(engine, certVerifier)
 }
 
+func EngineSetDialer(engine, dialer, context uintptr) {
+	cronetEngineSetDialer(engine, dialer, context)
+}
+
 func EngineGetStreamEngine(engine uintptr) uintptr {
 	return cronetEngineGetStreamEngine(engine)
 }

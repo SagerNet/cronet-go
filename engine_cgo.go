@@ -5,17 +5,39 @@ package cronet
 // #include <stdlib.h>
 // #include <stdbool.h>
 // #include <cronet_c.h>
+//
+// extern CRONET_EXPORT int cronetDialerCallback(void* context, char* address, uint16_t port);
 import "C"
 
 import (
+	"sync"
 	"unsafe"
 )
+
+var (
+	dialerAccess sync.RWMutex
+	dialerMap    = make(map[uintptr]Dialer)
+)
+
+//export cronetDialerCallback
+func cronetDialerCallback(context unsafe.Pointer, address *C.char, port C.uint16_t) C.int {
+	dialerAccess.RLock()
+	dialer, ok := dialerMap[uintptr(context)]
+	dialerAccess.RUnlock()
+	if !ok {
+		return -104 // ERR_CONNECTION_FAILED
+	}
+	return C.int(dialer(C.GoString(address), uint16(port)))
+}
 
 func NewEngine() Engine {
 	return Engine{uintptr(unsafe.Pointer(C.Cronet_Engine_Create()))}
 }
 
 func (e Engine) Destroy() {
+	dialerAccess.Lock()
+	delete(dialerMap, e.ptr)
+	dialerAccess.Unlock()
 	C.Cronet_Engine_Destroy(C.Cronet_EnginePtr(unsafe.Pointer(e.ptr)))
 }
 
@@ -178,4 +200,27 @@ func (e Engine) SetCertVerifierWithPublicKeySHA256(hashes [][]byte) bool {
 	}
 	C.Cronet_Engine_SetMockCertVerifierForTesting(C.Cronet_EnginePtr(unsafe.Pointer(e.ptr)), certVerifier)
 	return true
+}
+
+// SetDialer sets a custom dialer for TCP connections.
+// When set, the engine will use this callback to establish TCP connections
+// instead of the default system socket API.
+// Must be called before StartWithParams().
+// Pass nil to disable custom dialing.
+func (e Engine) SetDialer(dialer Dialer) {
+	if dialer == nil {
+		C.Cronet_Engine_SetDialer(C.Cronet_EnginePtr(unsafe.Pointer(e.ptr)), nil, nil)
+		dialerAccess.Lock()
+		delete(dialerMap, e.ptr)
+		dialerAccess.Unlock()
+		return
+	}
+	dialerAccess.Lock()
+	dialerMap[e.ptr] = dialer
+	dialerAccess.Unlock()
+	C.Cronet_Engine_SetDialer(
+		C.Cronet_EnginePtr(unsafe.Pointer(e.ptr)),
+		(*[0]byte)(C.cronetDialerCallback),
+		unsafe.Pointer(e.ptr),
+	)
 }

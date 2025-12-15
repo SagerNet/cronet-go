@@ -1,6 +1,7 @@
 package cronet
 
 import (
+	"context"
 	"encoding/binary"
 	"io"
 	"math/rand"
@@ -9,6 +10,7 @@ import (
 	"github.com/sagernet/sing/common"
 	"github.com/sagernet/sing/common/baderror"
 	"github.com/sagernet/sing/common/buf"
+	E "github.com/sagernet/sing/common/exceptions"
 	"github.com/sagernet/sing/common/rw"
 )
 
@@ -174,34 +176,62 @@ func (p *paddingConn) writerReplaceable() bool {
 	return p.writePadding == paddingCount
 }
 
-type NaiveConn struct {
+type NaiveConn interface {
 	net.Conn
+	Handshake() error
+	HandshakeContext(ctx context.Context) error
+}
+type naiveConn struct {
+	net.Conn
+	conn *BidirectionalConn
 	paddingConn
 }
 
-func NewNaiveConn(conn net.Conn) *NaiveConn {
-	return &NaiveConn{Conn: conn}
+func NewNaiveConn(conn *BidirectionalConn) NaiveConn {
+	return &naiveConn{Conn: conn, conn: conn}
 }
 
-func (c *NaiveConn) Read(p []byte) (n int, err error) {
+func (c *naiveConn) Handshake() error {
+	headers, err := c.conn.WaitForHeaders()
+	if err != nil {
+		return err
+	}
+	if headers[":status"] != "200" {
+		return E.New("unexcepted response status: ", headers[":status"])
+	}
+	return nil
+}
+
+func (c *naiveConn) HandshakeContext(ctx context.Context) error {
+	headers, err := c.conn.WaitForHeadersContext(ctx)
+	if err != nil {
+		return err
+	}
+	if headers[":status"] != "200" {
+		return E.New("unexcepted response status: ", headers[":status"])
+	}
+	return nil
+}
+
+func (c *naiveConn) Read(p []byte) (n int, err error) {
 	n, err = c.readWithPadding(c.Conn, p)
 	return n, baderror.WrapH2(err)
 }
 
-func (c *NaiveConn) Write(p []byte) (n int, err error) {
+func (c *naiveConn) Write(p []byte) (n int, err error) {
 	n, err = c.writeChunked(c.Conn, p)
 	return n, baderror.WrapH2(err)
 }
 
-func (c *NaiveConn) WriteBuffer(buffer *buf.Buffer) error {
+func (c *naiveConn) WriteBuffer(buffer *buf.Buffer) error {
 	defer buffer.Release()
 	err := c.writeBufferWithPadding(c.Conn, buffer)
 	return baderror.WrapH2(err)
 }
 
-func (c *NaiveConn) FrontHeadroom() int      { return c.frontHeadroom() }
-func (c *NaiveConn) RearHeadroom() int       { return c.rearHeadroom() }
-func (c *NaiveConn) WriterMTU() int          { return c.writerMTU() }
-func (c *NaiveConn) Upstream() any           { return c.Conn }
-func (c *NaiveConn) ReaderReplaceable() bool { return c.readerReplaceable() }
-func (c *NaiveConn) WriterReplaceable() bool { return c.writerReplaceable() }
+func (c *naiveConn) FrontHeadroom() int      { return c.frontHeadroom() }
+func (c *naiveConn) RearHeadroom() int       { return c.rearHeadroom() }
+func (c *naiveConn) WriterMTU() int          { return c.writerMTU() }
+func (c *naiveConn) Upstream() any           { return c.Conn }
+func (c *naiveConn) ReaderReplaceable() bool { return c.readerReplaceable() }
+func (c *naiveConn) WriterReplaceable() bool { return c.writerReplaceable() }

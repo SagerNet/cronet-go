@@ -29,8 +29,8 @@ type BidirectionalConn struct {
 	// Buffer safety: when Read/Write return due to close/done, Cronet may
 	// still hold the buffer. These channels are closed by callbacks to signal
 	// it's safe to return. sync.Once ensures close happens exactly once.
-	readDone     chan struct{}
-	writeDone    chan struct{}
+	readDone      chan struct{}
+	writeDone     chan struct{}
 	readDoneOnce  sync.Once
 	writeDoneOnce sync.Once
 }
@@ -260,6 +260,27 @@ func (c *BidirectionalConn) WaitForHeaders() (map[string]string, error) {
 		return c.headers, nil
 	case <-c.done:
 		return nil, c.err
+	}
+}
+
+func (c *BidirectionalConn) WaitForHeadersContext(ctx context.Context) (map[string]string, error) {
+	select {
+	case <-c.close:
+		return nil, net.ErrClosed
+	case <-c.done:
+		return nil, net.ErrClosed
+	default:
+	}
+
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-c.handshake:
+		return c.headers, nil
+	case <-c.done:
+		return nil, c.err
+	case <-c.close:
+		return nil, net.ErrClosed
 	}
 }
 
