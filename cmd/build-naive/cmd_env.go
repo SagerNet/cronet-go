@@ -87,7 +87,7 @@ func printEnv(t Target) {
 		if t.ARCH == "386" || t.ARCH == "arm" {
 			ldFlags = append(ldFlags, "-no-pie")
 		}
-		fmt.Printf("%sCGO_LDFLAGS=%s\n", prefix, shellQuote(strings.Join(ldFlags, " ")))
+		fmt.Printf("%sCGO_LDFLAGS=%s\n", prefix, shellQuote(strings.Join(ldFlags, " "), envExport))
 	}
 	// Darwin/iOS: No CGO_LDFLAGS needed, all flags are in the generated cgo files
 
@@ -100,14 +100,14 @@ func printEnv(t Target) {
 		cc := fmt.Sprintf("%s --target=%s --sysroot=%s", clangPath, clangTarget, sysroot)
 		cxx := fmt.Sprintf("%s++ --target=%s --sysroot=%s", clangPath, clangTarget, sysroot)
 
-		fmt.Printf("%sCC=%s\n", prefix, shellQuote(cc))
-		fmt.Printf("%sCXX=%s\n", prefix, shellQuote(cxx))
+		fmt.Printf("%sCC=%s\n", prefix, shellQuote(cc, envExport))
+		fmt.Printf("%sCXX=%s\n", prefix, shellQuote(cxx, envExport))
 		fmt.Printf("%sQEMU_LD_PREFIX=%s\n", prefix, sysroot)
 	}
 }
 
-func shellQuote(s string) string {
-	if strings.ContainsAny(s, " \t\n\"'\\$") {
+func shellQuote(s string, quote bool) string {
+	if quote && strings.ContainsAny(s, " \t\n\"'\\$") {
 		return "\"" + strings.ReplaceAll(s, "\"", "\\\"") + "\""
 	}
 	return s
