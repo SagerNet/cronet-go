@@ -20,38 +20,38 @@ import (
 	N "github.com/sagernet/sing/common/network"
 )
 
-type NaiveClientConfig struct {
-	Context       context.Context
-	ServerAddress M.Socksaddr
-	ServerName    string
-	Username      string
-	Password      string
-	Concurrency   int
-	ExtraHeaders  map[string]string
-
-	TrustedRootCertificates    string   // PEM format
-	CertificatePublicKeySHA256 [][]byte // SPKI SHA256 hashes
-
-	Dialer N.Dialer
-}
+var _ N.Dialer = (*NaiveClient)(nil)
 
 type NaiveClient struct {
-	ctx                        context.Context
-	dialer                     N.Dialer
-	serverAddress              M.Socksaddr
-	serverName                 string
-	serverURL                  string
-	authorization              string
-	extraHeaders               map[string]string
-	trustedRootCertificates    string
-	certificatePublicKeySHA256 [][]byte
-	concurrency                int
-	counter                    atomic.Uint64
-	engine                     Engine
-	streamEngine               StreamEngine
-	activeConnections          sync.WaitGroup
-	proxyWaitGroup             sync.WaitGroup
-	proxyCancel                context.CancelFunc
+	ctx                               context.Context
+	dialer                            N.Dialer
+	serverAddress                     M.Socksaddr
+	serverName                        string
+	serverURL                         string
+	authorization                     string
+	extraHeaders                      map[string]string
+	trustedRootCertificates           string
+	trustedCertificatePublicKeySHA256 [][]byte
+	concurrency                       int
+	counter                           atomic.Uint64
+	engine                            Engine
+	streamEngine                      StreamEngine
+	activeConnections                 sync.WaitGroup
+	proxyWaitGroup                    sync.WaitGroup
+	proxyCancel                       context.CancelFunc
+}
+
+type NaiveClientConfig struct {
+	Context                           context.Context
+	ServerAddress                     M.Socksaddr
+	ServerName                        string
+	Username                          string
+	Password                          string
+	InsecureConcurrency               int
+	ExtraHeaders                      map[string]string
+	TrustedRootCertificates           string   // PEM format
+	TrustedCertificatePublicKeySHA256 [][]byte // SPKI SHA256 hashes
+	Dialer                            N.Dialer
 }
 
 func NewNaiveClient(config NaiveClientConfig) (*NaiveClient, error) {
@@ -79,7 +79,7 @@ func NewNaiveClient(config NaiveClientConfig) (*NaiveClient, error) {
 			[]byte(config.Username+":"+config.Password))
 	}
 
-	concurrency := config.Concurrency
+	concurrency := config.InsecureConcurrency
 	if concurrency < 1 {
 		concurrency = 1
 	}
@@ -95,24 +95,24 @@ func NewNaiveClient(config NaiveClientConfig) (*NaiveClient, error) {
 	}
 
 	return &NaiveClient{
-		ctx:                        ctx,
-		dialer:                     dialer,
-		serverAddress:              config.ServerAddress,
-		serverName:                 serverName,
-		serverURL:                  serverURL.String(),
-		authorization:              authorization,
-		extraHeaders:               config.ExtraHeaders,
-		trustedRootCertificates:    config.TrustedRootCertificates,
-		certificatePublicKeySHA256: config.CertificatePublicKeySHA256,
-		concurrency:                concurrency,
+		ctx:                               ctx,
+		dialer:                            dialer,
+		serverAddress:                     config.ServerAddress,
+		serverName:                        serverName,
+		serverURL:                         serverURL.String(),
+		authorization:                     authorization,
+		extraHeaders:                      config.ExtraHeaders,
+		trustedRootCertificates:           config.TrustedRootCertificates,
+		trustedCertificatePublicKeySHA256: config.TrustedCertificatePublicKeySHA256,
+		concurrency:                       concurrency,
 	}, nil
 }
 
 func (c *NaiveClient) Start() error {
 	engine := NewEngine()
 
-	if len(c.certificatePublicKeySHA256) > 0 {
-		if !engine.SetCertVerifierWithPublicKeySHA256(c.certificatePublicKeySHA256) {
+	if len(c.trustedCertificatePublicKeySHA256) > 0 {
+		if !engine.SetCertVerifierWithPublicKeySHA256(c.trustedCertificatePublicKeySHA256) {
 			return E.New("failed to set certificate public key SHA256 verifier")
 		}
 	} else if c.trustedRootCertificates != "" {
@@ -220,7 +220,10 @@ func (c *NaiveClient) DialEarly(destination M.Socksaddr) (NaiveConn, error) {
 	}, nil
 }
 
-func (c *NaiveClient) DialContext(ctx context.Context, destination M.Socksaddr) (NaiveConn, error) {
+func (c *NaiveClient) DialContext(ctx context.Context, network string, destination M.Socksaddr) (net.Conn, error) {
+	if N.NetworkName(network) != N.NetworkTCP {
+		return nil, os.ErrInvalid
+	}
 	conn, err := c.DialEarly(destination)
 	if err != nil {
 		return nil, err
@@ -231,6 +234,10 @@ func (c *NaiveClient) DialContext(ctx context.Context, destination M.Socksaddr) 
 		return nil, err
 	}
 	return conn, nil
+}
+
+func (c *NaiveClient) ListenPacket(ctx context.Context, destination M.Socksaddr) (net.PacketConn, error) {
+	return nil, os.ErrInvalid
 }
 
 func (c *NaiveClient) Close() error {

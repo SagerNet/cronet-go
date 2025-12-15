@@ -30,6 +30,7 @@ import (
 	cronet "github.com/sagernet/cronet-go"
 	"github.com/sagernet/sing/common/bufio"
 	M "github.com/sagernet/sing/common/metadata"
+	N "github.com/sagernet/sing/common/network"
 
 	"github.com/stretchr/testify/require"
 	"go.uber.org/goleak"
@@ -80,7 +81,7 @@ func (e *testEnv) newNaiveClient(t *testing.T, config cronet.NaiveClientConfig) 
 	if config.Password == "" {
 		config.Password = "test"
 	}
-	if config.TrustedRootCertificates == "" && len(config.CertificatePublicKeySHA256) == 0 {
+	if config.TrustedRootCertificates == "" && len(config.TrustedCertificatePublicKeySHA256) == 0 {
 		config.TrustedRootCertificates = string(e.caPEM)
 	}
 	client, err := cronet.NewNaiveClient(config)
@@ -168,7 +169,7 @@ func TestNaiveConcurrency(t *testing.T) {
 		startIperf3ServerOnPort(t, uint16(iperf3Port+i))
 	}
 	env := setupTestEnv(t)
-	client := env.newNaiveClient(t, cronet.NaiveClientConfig{Concurrency: 3})
+	client := env.newNaiveClient(t, cronet.NaiveClientConfig{InsecureConcurrency: 3})
 
 	var waitGroup sync.WaitGroup
 	for i := 0; i < concurrencyCount; i++ {
@@ -216,7 +217,7 @@ func TestNaivePublicKeySHA256(t *testing.T) {
 	pinHash := sha256.Sum256(spkiBytes)
 
 	client := env.newNaiveClient(t, cronet.NaiveClientConfig{
-		CertificatePublicKeySHA256: [][]byte{pinHash[:]},
+		TrustedCertificatePublicKeySHA256: [][]byte{pinHash[:]},
 	})
 	startEchoServer(t, 15001)
 
@@ -248,7 +249,7 @@ func TestNaiveCloseWhileReading(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
-			conn, err := client.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", 16000))
+			conn, err := client.DialContext(ctx, N.NetworkTCP, M.ParseSocksaddrHostPort("127.0.0.1", 16000))
 			if err != nil {
 				t.Logf("iteration %d: dial failed: %v", i, err)
 				return

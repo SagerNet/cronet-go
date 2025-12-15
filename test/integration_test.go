@@ -224,7 +224,7 @@ func TestNaiveRapidOpenClose(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
-			conn, err := client.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", 17004))
+			conn, err := client.DialContext(ctx, N.NetworkTCP, M.ParseSocksaddrHostPort("127.0.0.1", 17004))
 			if err != nil {
 				t.Logf("iteration %d: dial failed (acceptable): %v", i, err)
 				return
