@@ -8,7 +8,7 @@ on:
         type: string
         required: false
   push:
-    branches: [main]
+    branches: [main, dev]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
@@ -562,6 +562,8 @@ jobs:
     if: github.event_name == 'push'
     needs: [linux, linux-musl, darwin, windows, android]
     runs-on: ubuntu-22.04
+    env:
+      TARGET_BRANCH: ${{ github.ref_name == 'main' && 'go' || 'go_dev' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -587,7 +589,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Publish
-        run: go run ./cmd/build-naive publish --branch go
+        run: go run ./cmd/build-naive publish --branch ${{ env.TARGET_BRANCH }}
 
   release:
     needs: [linux]
