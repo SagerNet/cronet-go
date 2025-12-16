@@ -152,7 +152,7 @@ func generateLocalCGOFiles(targets []Target) {
 			ldFlags = append(ldFlags, "-static")
 		}
 
-		cgoContent := fmt.Sprintf(`//go:build %s
+		cgoContent := fmt.Sprintf(`//go:build %s && !with_purego
 
 package cronet
 
@@ -365,7 +365,7 @@ go 1.20
 			ldFlags = append(ldFlags, "-static")
 		}
 
-		cgoContent := fmt.Sprintf(`//go:build %s
+		cgoContent := fmt.Sprintf(`//go:build %s && !with_purego
 
 package %s
 
@@ -381,10 +381,30 @@ const Version = "%s"
 			log.Fatalf("failed to write libcronet_cgo.go: %v", err)
 		}
 
+		// Generate purego stub file for non-Windows platforms
+		// This allows the package to compile in purego mode (user must provide .so/.dylib)
+		generatePuregoStubFile(targetDirectory, packageName, chromiumVersion)
+
 		runCommand(targetDirectory, "go", "mod", "tidy")
 
 		log.Printf("Generated submodule lib/%s", directoryName)
 	}
+}
+
+func generatePuregoStubFile(targetDirectory, packageName, chromiumVersion string) {
+	content := fmt.Sprintf(`//go:build with_purego
+
+package %s
+
+const Version = "%s"
+`, packageName, chromiumVersion)
+
+	stubPath := filepath.Join(targetDirectory, "libcronet_purego.go")
+	err := os.WriteFile(stubPath, []byte(content), 0o644)
+	if err != nil {
+		log.Fatalf("failed to write libcronet_purego.go: %v", err)
+	}
+	log.Printf("Generated libcronet_purego.go for %s", packageName)
 }
 
 func generateEmbedFile(targetDirectory, packageName, chromiumVersion string) {

@@ -45,6 +45,10 @@ func ensureLoaded() {
 }
 
 func doLoadLibrary(path string) error {
+	if path == "" && embeddedDLL != nil {
+		return doLoadLibraryFromMemory(embeddedDLL)
+	}
+
 	if path == "" {
 		path = findLibrary()
 	}
