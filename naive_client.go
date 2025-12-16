@@ -35,6 +35,7 @@ type NaiveClient struct {
 	dnsResolver                       DNSResolverFunc
 	echEnabled                        bool
 	echConfigList                     []byte
+	echQueryServerName                string
 	echMutex                          sync.RWMutex
 	testForceUDPLoopback              bool
 	concurrency                       int
@@ -70,10 +71,15 @@ type NaiveClientConfig struct {
 	// When set, the DNS resolver will inject this into HTTPS record responses
 	// for the server name. This allows manual ECH configuration when the
 	// upstream DNS doesn't provide ECH configs.
-	// Requires DNSResolver to be set for injection.
 	// If ECH negotiation fails and the server provides retry configs,
 	// NaiveClient will automatically update this value internally.
 	ECHConfigList []byte
+
+	// ECHQueryServerName overrides the domain name used for ECH HTTPS record queries.
+	// If empty, defaults to ServerName.
+	// This is useful when the ECH config should be fetched from a different domain
+	// than the one used for SNI.
+	ECHQueryServerName string
 
 	// TestForceUDPLoopback forces the use of UDP loopback sockets instead of
 	// Unix domain sockets for DNS interception. This is for testing only.
@@ -88,8 +94,8 @@ func NewNaiveClient(config NaiveClientConfig) (*NaiveClient, error) {
 	if !config.ServerAddress.IsValid() {
 		return nil, E.New("invalid server address")
 	}
-	if len(config.ECHConfigList) > 0 && config.DNSResolver == nil {
-		return nil, E.New("ECHConfigList requires DNSResolver to be set")
+	if config.DNSResolver == nil {
+		return nil, E.New("DNSResolver is required")
 	}
 
 	serverName := config.ServerName
@@ -136,6 +142,7 @@ func NewNaiveClient(config NaiveClientConfig) (*NaiveClient, error) {
 		dnsResolver:                       config.DNSResolver,
 		echEnabled:                        config.ECHEnabled,
 		echConfigList:                     config.ECHConfigList,
+		echQueryServerName:                config.ECHQueryServerName,
 		testForceUDPLoopback:              config.TestForceUDPLoopback,
 		concurrency:                       concurrency,
 	}, nil
@@ -157,23 +164,26 @@ func (c *NaiveClient) Start() error {
 	proxyContext, proxyCancel := context.WithCancel(c.ctx)
 	c.proxyCancel = proxyCancel
 
-	var dnsServerAddress M.Socksaddr
-	var dnsResolver DNSResolverFunc
-	if c.dnsResolver != nil {
-		// Use placeholder address for DNS interception
-		dnsServerAddress = M.ParseSocksaddrHostPort("127.0.0.1", 53)
+	// Use placeholder address for DNS interception
+	dnsServerAddress := M.ParseSocksaddrHostPort("127.0.0.1", 53)
+	dnsResolver := c.dnsResolver
 
-		if c.echEnabled {
-			// Wrap DNS resolver to inject ECH config into HTTPS records.
-			// Use a getter function so dynamic updates via SetECHConfigList() work.
-			dnsResolver = wrapDNSResolverWithECH(c.dnsResolver, c.serverName, c.getECHConfigList)
-		} else {
-			dnsResolver = c.dnsResolver
+	// If ServerName differs from ServerAddress, redirect DNS queries
+	if c.serverName != c.serverAddress.AddrString() {
+		dnsResolver = wrapDNSResolverForServerRedirect(dnsResolver, c.serverName, c.serverAddress)
+	}
+
+	// If ECH is enabled, wrap resolver to inject ECH config into HTTPS records
+	if c.echEnabled {
+		echQueryServerName := c.echQueryServerName
+		if echQueryServerName == "" {
+			echQueryServerName = c.serverName
 		}
+		dnsResolver = wrapDNSResolverWithECH(dnsResolver, c.serverName, echQueryServerName, c.getECHConfigList)
 	}
 
 	engine.SetDialer(func(address string, port uint16) int {
-		if dnsResolver != nil && dnsServerAddress.IsValid() && address == dnsServerAddress.AddrString() && port == dnsServerAddress.Port {
+		if address == dnsServerAddress.AddrString() && port == dnsServerAddress.Port {
 			fd, conn, err := createSocketPair()
 			if err != nil {
 				return -104 // ERR_CONNECTION_FAILED
@@ -228,8 +238,8 @@ func (c *NaiveClient) Start() error {
 	})
 
 	engine.SetUDPDialer(func(address string, port uint16) (fd int, localAddress string, localPort uint16) {
-		// When DNSResolver is set, intercept DNS traffic to the placeholder address
-		if dnsResolver != nil && dnsServerAddress.IsValid() && address == dnsServerAddress.AddrString() && port == dnsServerAddress.Port {
+		// Intercept DNS traffic to the placeholder address
+		if address == dnsServerAddress.AddrString() && port == dnsServerAddress.Port {
 			fd, conn, err := createPacketSocketPair(c.testForceUDPLoopback)
 			if err != nil {
 				return -104, "", 0 // ERR_CONNECTION_FAILED
@@ -292,15 +302,13 @@ func (c *NaiveClient) Start() error {
 	params := NewEngineParams()
 	params.SetEnableHTTP2(true)
 
-	if dnsServerAddress.IsValid() {
-		err := params.SetAsyncDNS(true)
-		if err != nil {
-			return err
-		}
-		err = params.SetDNSServerOverride([]string{dnsServerAddress.String()})
-		if err != nil {
-			return err
-		}
+	err := params.SetAsyncDNS(true)
+	if err != nil {
+		return err
+	}
+	err = params.SetDNSServerOverride([]string{dnsServerAddress.String()})
+	if err != nil {
+		return err
 	}
 
 	if c.echEnabled {

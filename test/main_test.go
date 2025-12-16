@@ -84,6 +84,9 @@ func (e *testEnv) newNaiveClient(t *testing.T, config cronet.NaiveClientConfig) 
 	if config.TrustedRootCertificates == "" && len(config.TrustedCertificatePublicKeySHA256) == 0 {
 		config.TrustedRootCertificates = string(e.caPEM)
 	}
+	if config.DNSResolver == nil {
+		config.DNSResolver = localhostDNSResolver(t)
+	}
 	client, err := cronet.NewNaiveClient(config)
 	require.NoError(t, err)
 	require.NoError(t, client.Start())

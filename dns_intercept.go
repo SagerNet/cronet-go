@@ -1,16 +1,31 @@
 package cronet
 
+// DNS Hijacking Logic for ServerName Resolution
+//
+// Priority: serverName (SNI) = ServerName config > ServerAddress
+//
+// A/AAAA queries for serverName:
+//   - If ServerAddress is a domain (different from serverName): redirect query to ServerAddress
+//   - If ServerAddress is an IP: return synthetic response (mismatched type returns empty SUCCESS)
+//
+// HTTPS queries for serverName (ECH):
+//   - If fixed ECHConfigList exists: return synthetic response immediately
+//   - Otherwise: forward query (priority: ECHQueryServerName > serverName)
+//   - Always filter ipv4hint/ipv6hint to prevent incorrect IP usage
+
 import (
 	"context"
 	"encoding/binary"
 	"errors"
 	"io"
 	"net"
+	"net/netip"
 	"strings"
 	"time"
 
 	mDNS "github.com/miekg/dns"
 	"github.com/sagernet/sing/common/bufio"
+	M "github.com/sagernet/sing/common/metadata"
 )
 
 const chromiumDNSUDPMaxSize = 512
@@ -18,8 +33,7 @@ const chromiumDNSUDPMaxSize = 512
 func serveDNSPacketConn(ctx context.Context, conn net.PacketConn, resolver DNSResolverFunc) error {
 	defer conn.Close()
 
-	// Close the connection when context is cancelled.
-	// Datagram sockets are connectionless - closing the peer doesn't unblock ReadFrom.
+	// Datagram sockets are connectionless - closing the peer doesn't unblock ReadFrom
 	go func() {
 		<-ctx.Done()
 		conn.Close()
@@ -68,9 +82,6 @@ func serveDNSPacketConn(ctx context.Context, conn net.PacketConn, resolver DNSRe
 			}
 		}
 
-		// Get a net.Conn for writing:
-		// - Connected sockets (Unix socketpair, framedPacketConn) implement net.Conn directly
-		// - Non-connected sockets (UDP) are wrapped with NewBindPacketConn
 		var writeConn net.Conn
 		if c, ok := conn.(net.Conn); ok {
 			writeConn = c
@@ -84,7 +95,6 @@ func serveDNSPacketConn(ctx context.Context, conn net.PacketConn, resolver DNSRe
 func serveDNSStreamConn(ctx context.Context, conn net.Conn, resolver DNSResolverFunc) error {
 	defer conn.Close()
 
-	// Close the connection when context is cancelled.
 	go func() {
 		<-ctx.Done()
 		conn.Close()
@@ -167,47 +177,94 @@ func truncatedDNSResponse(request *mDNS.Msg, rcode int) *mDNS.Msg {
 	return response
 }
 
-// wrapDNSResolverWithECH wraps a DNS resolver to inject ECH config into HTTPS
-// record responses for the specified server name. The echConfigGetter is called
-// on each HTTPS query to get the current ECH config (allowing dynamic updates).
 func wrapDNSResolverWithECH(
 	resolver DNSResolverFunc,
 	serverName string,
+	echQueryServerName string,
 	echConfigGetter func() []byte,
 ) DNSResolverFunc {
 	return func(ctx context.Context, request *mDNS.Msg) *mDNS.Msg {
-		response := resolver(ctx, request)
-
-		// Check if this is an HTTPS query for our server
 		if len(request.Question) > 0 {
 			question := request.Question[0]
 			if question.Qtype == mDNS.TypeHTTPS && matchesServerName(question.Name, serverName) {
 				echConfig := echConfigGetter()
 				if len(echConfig) > 0 {
-					return injectECHConfig(request, response, echConfig)
+					return injectECHConfig(request, nil, echConfig)
 				}
+
+				var response *mDNS.Msg
+				if echQueryServerName != serverName {
+					redirectedRequest := request.Copy()
+					redirectedRequest.Question[0].Name = rewriteHTTPSQueryName(question.Name, serverName, echQueryServerName)
+					response = resolver(ctx, redirectedRequest)
+					if response != nil {
+						response.Question = request.Question
+						rewriteHTTPSAnswerNames(response, echQueryServerName, serverName)
+					}
+				} else {
+					response = resolver(ctx, request)
+				}
+
+				filterIPHintsFromHTTPS(response)
+				return response
 			}
 		}
-		return response
+		return resolver(ctx, request)
 	}
 }
 
-// matchesServerName checks if a DNS query name matches the server name.
-// The query name is in DNS wire format (FQDN with trailing dot).
-// For HTTPS records, Chromium may query in the format "_<port>._https.<name>"
-// when querying for a specific port.
+// rewriteHTTPSQueryName handles both direct (example.com) and port-prefixed (_443._https.example.com) queries.
+func rewriteHTTPSQueryName(queryName, fromServer, toServer string) string {
+	queryName = strings.TrimSuffix(queryName, ".")
+	fromServer = strings.TrimSuffix(fromServer, ".")
+	toServer = strings.TrimSuffix(toServer, ".")
+
+	if strings.HasPrefix(queryName, "_") {
+		parts := strings.SplitN(queryName, "._https.", 2)
+		if len(parts) == 2 && strings.EqualFold(parts[1], fromServer) {
+			return parts[0] + "._https." + toServer + "."
+		}
+	}
+
+	if strings.EqualFold(queryName, fromServer) {
+		return toServer + "."
+	}
+
+	return queryName + "."
+}
+
+func rewriteHTTPSAnswerNames(response *mDNS.Msg, fromServer, toServer string) {
+	fromServer = strings.TrimSuffix(fromServer, ".")
+	toServer = strings.TrimSuffix(toServer, ".")
+
+	for _, rr := range response.Answer {
+		if https, ok := rr.(*mDNS.HTTPS); ok {
+			hdrName := strings.TrimSuffix(https.Hdr.Name, ".")
+			if strings.EqualFold(hdrName, fromServer) {
+				https.Hdr.Name = toServer + "."
+			} else if strings.HasPrefix(hdrName, "_") {
+				parts := strings.SplitN(hdrName, "._https.", 2)
+				if len(parts) == 2 && strings.EqualFold(parts[1], fromServer) {
+					https.Hdr.Name = parts[0] + "._https." + toServer + "."
+				}
+			}
+			targetName := strings.TrimSuffix(https.Target, ".")
+			if strings.EqualFold(targetName, fromServer) {
+				https.Target = toServer + "."
+			}
+		}
+	}
+}
+
+// matchesServerName handles both direct and port-prefixed (_<port>._https.<name>) query formats.
 func matchesServerName(queryName, serverName string) bool {
-	// Normalize: remove trailing dot from query name if present
 	queryName = strings.TrimSuffix(queryName, ".")
 	serverName = strings.TrimSuffix(serverName, ".")
 
-	// Direct match
 	if strings.EqualFold(queryName, serverName) {
 		return true
 	}
 
-	// Check for port-prefixed HTTPS query format: _<port>._https.<name>
-	// Example: _443._https.example.org for example.org:443
 	if strings.HasPrefix(queryName, "_") {
 		parts := strings.SplitN(queryName, "._https.", 2)
 		if len(parts) == 2 {
@@ -218,15 +275,12 @@ func matchesServerName(queryName, serverName string) bool {
 	return false
 }
 
-// injectECHConfig injects or replaces ECH config in an HTTPS record response.
-// If the response is nil or has no HTTPS records, a synthetic response is created.
 func injectECHConfig(request *mDNS.Msg, response *mDNS.Msg, echConfig []byte) *mDNS.Msg {
 	if response == nil {
 		response = new(mDNS.Msg)
 		response.SetReply(request)
 	}
 
-	// Look for existing HTTPS records and update their ECH config
 	hasHTTPS := false
 	for _, rr := range response.Answer {
 		if https, ok := rr.(*mDNS.HTTPS); ok {
@@ -235,12 +289,8 @@ func injectECHConfig(request *mDNS.Msg, response *mDNS.Msg, echConfig []byte) *m
 		}
 	}
 
-	// If no HTTPS records exist, synthesize one
 	if !hasHTTPS && len(request.Question) > 0 {
 		queryName := request.Question[0].Name
-
-		// Extract the actual server name from port-prefixed HTTPS queries
-		// Format: _<port>._https.<server_name>. -> server_name.
 		targetName := queryName
 		if strings.HasPrefix(queryName, "_") {
 			parts := strings.SplitN(queryName, "._https.", 2)
@@ -268,15 +318,118 @@ func injectECHConfig(request *mDNS.Msg, response *mDNS.Msg, echConfig []byte) *m
 	return response
 }
 
-// updateECHInSVCB updates or adds ECH config in an SVCB record's key-value pairs.
 func updateECHInSVCB(svcb *mDNS.SVCB, echConfig []byte) {
-	// Look for existing ECH key and update it
 	for i, kv := range svcb.Value {
 		if _, ok := kv.(*mDNS.SVCBECHConfig); ok {
 			svcb.Value[i] = &mDNS.SVCBECHConfig{ECH: echConfig}
 			return
 		}
 	}
-	// No existing ECH key, add one
 	svcb.Value = append(svcb.Value, &mDNS.SVCBECHConfig{ECH: echConfig})
+}
+
+func filterIPHintsFromHTTPS(response *mDNS.Msg) {
+	if response == nil {
+		return
+	}
+	for _, rr := range response.Answer {
+		if https, ok := rr.(*mDNS.HTTPS); ok {
+			filterIPHintsFromSVCB(&https.SVCB)
+		}
+	}
+}
+
+func filterIPHintsFromSVCB(svcb *mDNS.SVCB) {
+	filtered := svcb.Value[:0]
+	for _, kv := range svcb.Value {
+		switch kv.(type) {
+		case *mDNS.SVCBIPv4Hint, *mDNS.SVCBIPv6Hint:
+		default:
+			filtered = append(filtered, kv)
+		}
+	}
+	svcb.Value = filtered
+}
+
+func wrapDNSResolverForServerRedirect(
+	resolver DNSResolverFunc,
+	serverName string,
+	serverAddress M.Socksaddr,
+) DNSResolverFunc {
+	return func(ctx context.Context, request *mDNS.Msg) *mDNS.Msg {
+		if len(request.Question) == 0 {
+			return resolver(ctx, request)
+		}
+
+		question := request.Question[0]
+		if question.Qtype != mDNS.TypeA && question.Qtype != mDNS.TypeAAAA {
+			return resolver(ctx, request)
+		}
+
+		queryName := strings.TrimSuffix(question.Name, ".")
+		if !strings.EqualFold(queryName, serverName) {
+			return resolver(ctx, request)
+		}
+
+		if serverAddress.IsIP() {
+			return synthesizeAddressResponse(request, serverAddress.Addr)
+		}
+
+		redirectedRequest := request.Copy()
+		redirectedRequest.Question[0].Name = mDNS.Fqdn(serverAddress.AddrString())
+
+		response := resolver(ctx, redirectedRequest)
+		if response != nil {
+			response.Question = request.Question
+			rewriteAddressAnswerNames(response, serverAddress.AddrString(), serverName)
+		}
+		return response
+	}
+}
+
+func rewriteAddressAnswerNames(response *mDNS.Msg, fromDomain, toDomain string) {
+	fromDomain = strings.TrimSuffix(fromDomain, ".")
+	toDomain = strings.TrimSuffix(toDomain, ".")
+	toFQDN := toDomain + "."
+
+	for _, rr := range response.Answer {
+		hdrName := strings.TrimSuffix(rr.Header().Name, ".")
+		if strings.EqualFold(hdrName, fromDomain) {
+			rr.Header().Name = toFQDN
+		}
+	}
+}
+
+func synthesizeAddressResponse(request *mDNS.Msg, address netip.Addr) *mDNS.Msg {
+	response := new(mDNS.Msg)
+	response.SetReply(request)
+
+	if len(request.Question) == 0 {
+		return response
+	}
+
+	question := request.Question[0]
+	if question.Qtype == mDNS.TypeA && address.Is4() {
+		response.Answer = append(response.Answer, &mDNS.A{
+			Hdr: mDNS.RR_Header{
+				Name:   question.Name,
+				Rrtype: mDNS.TypeA,
+				Class:  mDNS.ClassINET,
+				Ttl:    300,
+			},
+			A: address.AsSlice(),
+		})
+	} else if question.Qtype == mDNS.TypeAAAA && address.Is6() {
+		response.Answer = append(response.Answer, &mDNS.AAAA{
+			Hdr: mDNS.RR_Header{
+				Name:   question.Name,
+				Rrtype: mDNS.TypeAAAA,
+				Class:  mDNS.ClassINET,
+				Ttl:    300,
+			},
+			AAAA: address.AsSlice(),
+		})
+	}
+
+	return response
 }
