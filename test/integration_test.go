@@ -7,6 +7,9 @@ import (
 	"errors"
 	"io"
 	"net"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -383,4 +386,52 @@ func TestNaivePipeProxyMultipleConnections(t *testing.T) {
 	for err := range errChannel {
 		t.Errorf("connection error: %v", err)
 	}
+}
+
+// TestNaiveInsecureConcurrencySessionCount verifies that InsecureConcurrency
+// actually creates multiple HTTP/2 sessions (regression test for
+// PartitionConnectionsByNetworkIsolationKey feature)
+func TestNaiveInsecureConcurrencySessionCount(t *testing.T) {
+	env := setupTestEnv(t)
+	client := env.newNaiveClient(t, cronet.NaiveClientConfig{InsecureConcurrency: 3})
+
+	// Start echo servers for each connection
+	const connectionCount = 6
+	for i := 0; i < connectionCount; i++ {
+		startEchoServer(t, uint16(18000+i))
+	}
+
+	// Start NetLog
+	netLogPath := filepath.Join(t.TempDir(), "netlog.json")
+	require.True(t, client.Engine().StartNetLogToFile(netLogPath, true),
+		"Failed to start NetLog")
+
+	// Send multiple sequential connections to trigger round-robin
+	for i := 0; i < connectionCount; i++ {
+		conn, err := client.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", uint16(18000+i)))
+		require.NoError(t, err)
+
+		testData := []byte("test")
+		_, err = conn.Write(testData)
+		require.NoError(t, err)
+
+		buf := make([]byte, len(testData))
+		_, err = io.ReadFull(conn, buf)
+		require.NoError(t, err)
+
+		conn.Close()
+	}
+
+	// Stop NetLog and read results
+	client.Engine().StopNetLog()
+
+	logContent, err := os.ReadFile(netLogPath)
+	require.NoError(t, err)
+	logStr := string(logContent)
+
+	// Count HTTP2_SESSION_INITIALIZED events (type 249 in NetLog)
+	sessionCount := strings.Count(logStr, `"type":249`)
+	require.GreaterOrEqual(t, sessionCount, 3,
+		"Expected at least 3 HTTP/2 sessions with InsecureConcurrency=3, got %d. NetLog: %s",
+		sessionCount, netLogPath)
 }
