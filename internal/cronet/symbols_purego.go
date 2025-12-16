@@ -54,6 +54,7 @@ var (
 	cronetEngineGetStreamEngine               func(uintptr) uintptr
 	cronetEngineSetMockCertVerifierForTesting func(uintptr, uintptr)
 	cronetEngineSetDialer                     func(uintptr, uintptr, uintptr)
+	cronetEngineSetUdpDialer                  func(uintptr, uintptr, uintptr)
 
 	// EngineParams functions
 	cronetEngineParamsCreate                                              func() uintptr

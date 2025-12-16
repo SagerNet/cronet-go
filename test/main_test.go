@@ -132,7 +132,9 @@ func startEchoServer(t *testing.T, port uint16) {
 // TestNaiveBasic verifies basic NaiveClient connectivity
 func TestNaiveBasic(t *testing.T) {
 	env := setupTestEnv(t)
-	client := env.newNaiveClient(t, cronet.NaiveClientConfig{})
+	client := env.newNaiveClient(t, cronet.NaiveClientConfig{
+		DNSResolver: localhostDNSResolver(t),
+	})
 	startEchoServer(t, 15000)
 
 	conn, err := client.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", 15000))
@@ -153,7 +155,9 @@ func TestNaiveBasic(t *testing.T) {
 func TestNaiveIperf3(t *testing.T) {
 	startIperf3Server(t)
 	env := setupTestEnv(t)
-	client := env.newNaiveClient(t, cronet.NaiveClientConfig{})
+	client := env.newNaiveClient(t, cronet.NaiveClientConfig{
+		DNSResolver: localhostDNSResolver(t),
+	})
 
 	forwarder := startForwarder(t, forwardPort, client, iperf3Port)
 	defer forwarder.Close()
@@ -169,7 +173,10 @@ func TestNaiveConcurrency(t *testing.T) {
 		startIperf3ServerOnPort(t, uint16(iperf3Port+i))
 	}
 	env := setupTestEnv(t)
-	client := env.newNaiveClient(t, cronet.NaiveClientConfig{InsecureConcurrency: 3})
+	client := env.newNaiveClient(t, cronet.NaiveClientConfig{
+		InsecureConcurrency: 3,
+		DNSResolver:         localhostDNSResolver(t),
+	})
 
 	var waitGroup sync.WaitGroup
 	for i := 0; i < concurrencyCount; i++ {
@@ -190,7 +197,9 @@ func TestNaiveConcurrency(t *testing.T) {
 func TestNaiveParallel(t *testing.T) {
 	startIperf3Server(t)
 	env := setupTestEnv(t)
-	client := env.newNaiveClient(t, cronet.NaiveClientConfig{})
+	client := env.newNaiveClient(t, cronet.NaiveClientConfig{
+		DNSResolver: localhostDNSResolver(t),
+	})
 
 	forwarder := startForwarder(t, forwardPort, client, iperf3Port)
 	defer forwarder.Close()
@@ -218,6 +227,7 @@ func TestNaivePublicKeySHA256(t *testing.T) {
 
 	client := env.newNaiveClient(t, cronet.NaiveClientConfig{
 		TrustedCertificatePublicKeySHA256: [][]byte{pinHash[:]},
+		DNSResolver:                       localhostDNSResolver(t),
 	})
 	startEchoServer(t, 15001)
 
@@ -239,7 +249,9 @@ func TestNaivePublicKeySHA256(t *testing.T) {
 // reads are in progress. This verifies the fix for buffer lifetime issues.
 func TestNaiveCloseWhileReading(t *testing.T) {
 	env := setupTestEnv(t)
-	client := env.newNaiveClient(t, cronet.NaiveClientConfig{})
+	client := env.newNaiveClient(t, cronet.NaiveClientConfig{
+		DNSResolver: localhostDNSResolver(t),
+	})
 	startEchoServer(t, 16000)
 
 	const iterations = 20

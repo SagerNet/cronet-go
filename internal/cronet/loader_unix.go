@@ -236,6 +236,9 @@ func registerSymbols() error {
 	if err := registerFunc(&cronetEngineSetDialer, "Cronet_Engine_SetDialer"); err != nil {
 		return err
 	}
+	if err := registerFunc(&cronetEngineSetUdpDialer, "Cronet_Engine_SetUdpDialer"); err != nil {
+		return err
+	}
 
 	// EngineParams
 	if err := registerFunc(&cronetEngineParamsCreate, "Cronet_EngineParams_Create"); err != nil {

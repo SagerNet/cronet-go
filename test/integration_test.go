@@ -20,8 +20,45 @@ import (
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
 
+	mDNS "github.com/miekg/dns"
 	"github.com/stretchr/testify/require"
 )
+
+// localhostDNSResolver returns a DNS resolver that resolves all A/AAAA queries to 127.0.0.1.
+func localhostDNSResolver(t *testing.T) cronet.DNSResolverFunc {
+	return func(ctx context.Context, request *mDNS.Msg) *mDNS.Msg {
+		t.Logf("DNS resolver called for: %v", request.Question)
+		response := new(mDNS.Msg)
+		response.SetReply(request)
+		for _, question := range request.Question {
+			switch question.Qtype {
+			case mDNS.TypeA:
+				t.Logf("Resolving %s to 127.0.0.1", question.Name)
+				response.Answer = append(response.Answer, &mDNS.A{
+					Hdr: mDNS.RR_Header{
+						Name:   question.Name,
+						Rrtype: mDNS.TypeA,
+						Class:  mDNS.ClassINET,
+						Ttl:    300,
+					},
+					A: net.ParseIP("127.0.0.1"),
+				})
+			case mDNS.TypeAAAA:
+				t.Logf("Resolving %s to ::1", question.Name)
+				response.Answer = append(response.Answer, &mDNS.AAAA{
+					Hdr: mDNS.RR_Header{
+						Name:   question.Name,
+						Rrtype: mDNS.TypeAAAA,
+						Class:  mDNS.ClassINET,
+						Ttl:    300,
+					},
+					AAAA: net.ParseIP("::1"),
+				})
+			}
+		}
+		return response
+	}
+}
 
 // wrappedConn wraps a net.Conn but is NOT a *net.TCPConn,
 // forcing the fallback path (socket pair proxy) in NaiveClient.
@@ -83,7 +120,8 @@ func TestNaiveCustomDialer(t *testing.T) {
 	}
 
 	client := env.newNaiveClient(t, cronet.NaiveClientConfig{
-		Dialer: dialer,
+		Dialer:      dialer,
+		DNSResolver: localhostDNSResolver(t),
 	})
 
 	// Make a connection
@@ -117,7 +155,8 @@ func TestNaivePipeProxy(t *testing.T) {
 	}
 
 	client := env.newNaiveClient(t, cronet.NaiveClientConfig{
-		Dialer: dialer,
+		Dialer:      dialer,
+		DNSResolver: localhostDNSResolver(t),
 	})
 
 	// Make a connection through the proxy path
@@ -182,7 +221,9 @@ func TestNaiveLargeTransfer(t *testing.T) {
 	env := setupTestEnv(t)
 	startEchoServer(t, 17003)
 
-	client := env.newNaiveClient(t, cronet.NaiveClientConfig{})
+	client := env.newNaiveClient(t, cronet.NaiveClientConfig{
+		DNSResolver: localhostDNSResolver(t),
+	})
 
 	conn, err := client.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", 17003))
 	require.NoError(t, err)
@@ -218,7 +259,9 @@ func TestNaiveRapidOpenClose(t *testing.T) {
 	env := setupTestEnv(t)
 	startEchoServer(t, 17004)
 
-	client := env.newNaiveClient(t, cronet.NaiveClientConfig{})
+	client := env.newNaiveClient(t, cronet.NaiveClientConfig{
+		DNSResolver: localhostDNSResolver(t),
+	})
 
 	const iterations = 50
 
@@ -262,6 +305,7 @@ func TestNaiveGracefulShutdown(t *testing.T) {
 		Username:      "test",
 		Password:      "test",
 		Dialer:        dialer,
+		DNSResolver:   localhostDNSResolver(t),
 	}
 	config.TrustedRootCertificates = string(env.caPEM)
 
@@ -335,7 +379,8 @@ func TestNaivePipeProxyMultipleConnections(t *testing.T) {
 	}
 
 	client := env.newNaiveClient(t, cronet.NaiveClientConfig{
-		Dialer: dialer,
+		Dialer:      dialer,
+		DNSResolver: localhostDNSResolver(t),
 	})
 
 	const connectionCount = 10
@@ -388,12 +433,200 @@ func TestNaivePipeProxyMultipleConnections(t *testing.T) {
 	}
 }
 
+// TestDNSTCFallbackToTCP verifies that when UDP DNS returns TC (Truncated),
+// Chromium falls back to TCP DNS and our TCP DNS interception works.
+func TestDNSTCFallbackToTCP(t *testing.T) {
+	env := setupTestEnv(t)
+	startEchoServer(t, 17007)
+
+	var dnsCallCount atomic.Int64
+
+	// DNS resolver that returns a large response (> 512 bytes)
+	// This will trigger TC on UDP, forcing fallback to TCP
+	largeDNSResolver := func(ctx context.Context, request *mDNS.Msg) *mDNS.Msg {
+		dnsCallCount.Add(1)
+		count := dnsCallCount.Load()
+		t.Logf("DNS resolver called (call #%d): %v", count, request.Question)
+
+		response := new(mDNS.Msg)
+		response.SetReply(request)
+
+		for _, question := range request.Question {
+			if question.Qtype == mDNS.TypeA {
+				response.Answer = append(response.Answer, &mDNS.A{
+					Hdr: mDNS.RR_Header{
+						Name:   question.Name,
+						Rrtype: mDNS.TypeA,
+						Class:  mDNS.ClassINET,
+						Ttl:    300,
+					},
+					A: net.ParseIP("127.0.0.1"),
+				})
+			}
+		}
+
+		// Add many TXT records to exceed 512 bytes
+		for i := 0; i < 20; i++ {
+			response.Extra = append(response.Extra, &mDNS.TXT{
+				Hdr: mDNS.RR_Header{
+					Name:   request.Question[0].Name,
+					Rrtype: mDNS.TypeTXT,
+					Class:  mDNS.ClassINET,
+					Ttl:    300,
+				},
+				Txt: []string{strings.Repeat("x", 50)},
+			})
+		}
+		return response
+	}
+
+	client := env.newNaiveClient(t, cronet.NaiveClientConfig{
+		DNSResolver: largeDNSResolver,
+	})
+
+	// Make a connection - this will trigger DNS resolution
+	conn, err := client.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", 17007))
+	require.NoError(t, err)
+	defer conn.Close()
+
+	// Verify connection works
+	testData := []byte("TC fallback test!")
+	_, err = conn.Write(testData)
+	require.NoError(t, err)
+
+	buf := make([]byte, len(testData))
+	_, err = io.ReadFull(conn, buf)
+	require.NoError(t, err)
+	require.Equal(t, testData, buf)
+
+	// DNS should be called at least twice (UDP with TC, then TCP)
+	require.GreaterOrEqual(t, dnsCallCount.Load(), int64(2),
+		"DNS resolver should be called at least twice (UDP TC + TCP fallback)")
+	t.Logf("DNS resolver was called %d times", dnsCallCount.Load())
+}
+
+// TestDNSInterceptionUDPLoopbackFallback verifies that DNS interception works
+// when forcing the UDP loopback socket pair fallback path.
+// This tests the path used on all platforms when Unix domain sockets are unavailable.
+func TestDNSInterceptionUDPLoopbackFallback(t *testing.T) {
+	env := setupTestEnv(t)
+	startEchoServer(t, 17008)
+
+	var dnsCallCount atomic.Int64
+
+	countingResolver := func(ctx context.Context, request *mDNS.Msg) *mDNS.Msg {
+		dnsCallCount.Add(1)
+		t.Logf("UDP loopback DNS resolver called: %v", request.Question)
+		response := new(mDNS.Msg)
+		response.SetReply(request)
+		for _, question := range request.Question {
+			if question.Qtype == mDNS.TypeA {
+				response.Answer = append(response.Answer, &mDNS.A{
+					Hdr: mDNS.RR_Header{
+						Name:   question.Name,
+						Rrtype: mDNS.TypeA,
+						Class:  mDNS.ClassINET,
+						Ttl:    300,
+					},
+					A: net.ParseIP("127.0.0.1"),
+				})
+			}
+		}
+		return response
+	}
+
+	client := env.newNaiveClient(t, cronet.NaiveClientConfig{
+		DNSResolver:          countingResolver,
+		TestForceUDPLoopback: true, // Force UDP loopback path
+	})
+
+	// Make a connection - this will trigger DNS resolution through UDP loopback
+	conn, err := client.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", 17008))
+	require.NoError(t, err)
+	defer conn.Close()
+
+	// Verify connection works
+	testData := []byte("UDP loopback fallback test!")
+	_, err = conn.Write(testData)
+	require.NoError(t, err)
+
+	buf := make([]byte, len(testData))
+	_, err = io.ReadFull(conn, buf)
+	require.NoError(t, err)
+	require.Equal(t, testData, buf)
+
+	// Verify DNS resolver was called
+	require.Greater(t, dnsCallCount.Load(), int64(0),
+		"DNS resolver should have been called through UDP loopback path")
+	t.Logf("DNS resolver was called %d times via UDP loopback", dnsCallCount.Load())
+}
+
+// TestDNSInterceptionDefaultPath verifies that DNS interception works
+// with the default platform-specific socketpair implementation.
+// - Unix: AF_UNIX SOCK_DGRAM socketpair
+// - Windows: AF_UNIX SOCK_STREAM + length-prefix framing
+func TestDNSInterceptionDefaultPath(t *testing.T) {
+	env := setupTestEnv(t)
+	startEchoServer(t, 17009)
+
+	var dnsCallCount atomic.Int64
+
+	countingResolver := func(ctx context.Context, request *mDNS.Msg) *mDNS.Msg {
+		dnsCallCount.Add(1)
+		t.Logf("Default path DNS resolver called: %v", request.Question)
+		response := new(mDNS.Msg)
+		response.SetReply(request)
+		for _, question := range request.Question {
+			if question.Qtype == mDNS.TypeA {
+				response.Answer = append(response.Answer, &mDNS.A{
+					Hdr: mDNS.RR_Header{
+						Name:   question.Name,
+						Rrtype: mDNS.TypeA,
+						Class:  mDNS.ClassINET,
+						Ttl:    300,
+					},
+					A: net.ParseIP("127.0.0.1"),
+				})
+			}
+		}
+		return response
+	}
+
+	client := env.newNaiveClient(t, cronet.NaiveClientConfig{
+		DNSResolver:          countingResolver,
+		TestForceUDPLoopback: false, // Use default path (Unix SOCK_DGRAM or Windows framed)
+	})
+
+	// Make a connection - this will trigger DNS resolution through default path
+	conn, err := client.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", 17009))
+	require.NoError(t, err)
+	defer conn.Close()
+
+	// Verify connection works
+	testData := []byte("Default path DNS interception test!")
+	_, err = conn.Write(testData)
+	require.NoError(t, err)
+
+	buf := make([]byte, len(testData))
+	_, err = io.ReadFull(conn, buf)
+	require.NoError(t, err)
+	require.Equal(t, testData, buf)
+
+	// Verify DNS resolver was called
+	require.Greater(t, dnsCallCount.Load(), int64(0),
+		"DNS resolver should have been called through default path")
+	t.Logf("DNS resolver was called %d times via default path", dnsCallCount.Load())
+}
+
 // TestNaiveInsecureConcurrencySessionCount verifies that InsecureConcurrency
 // actually creates multiple HTTP/2 sessions (regression test for
 // PartitionConnectionsByNetworkIsolationKey feature)
 func TestNaiveInsecureConcurrencySessionCount(t *testing.T) {
 	env := setupTestEnv(t)
-	client := env.newNaiveClient(t, cronet.NaiveClientConfig{InsecureConcurrency: 3})
+	client := env.newNaiveClient(t, cronet.NaiveClientConfig{
+		InsecureConcurrency: 3,
+		DNSResolver:         localhostDNSResolver(t),
+	})
 
 	// Start echo servers for each connection
 	const connectionCount = 6

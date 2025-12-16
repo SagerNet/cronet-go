@@ -4,9 +4,11 @@ package cronet
 
 // #include <stdlib.h>
 // #include <stdbool.h>
+// #include <string.h>
 // #include <cronet_c.h>
 //
 // extern CRONET_EXPORT int cronetDialerCallback(void* context, char* address, uint16_t port);
+// extern CRONET_EXPORT int cronetUdpDialerCallback(void* context, char* address, uint16_t port, char* out_local_address, uint16_t* out_local_port);
 import "C"
 
 import (
@@ -15,8 +17,10 @@ import (
 )
 
 var (
-	dialerAccess sync.RWMutex
-	dialerMap    = make(map[uintptr]Dialer)
+	dialerAccess    sync.RWMutex
+	dialerMap       = make(map[uintptr]Dialer)
+	udpDialerAccess sync.RWMutex
+	udpDialerMap    = make(map[uintptr]UDPDialer)
 )
 
 //export cronetDialerCallback
@@ -30,6 +34,29 @@ func cronetDialerCallback(context unsafe.Pointer, address *C.char, port C.uint16
 	return C.int(dialer(C.GoString(address), uint16(port)))
 }
 
+//export cronetUdpDialerCallback
+func cronetUdpDialerCallback(context unsafe.Pointer, address *C.char, port C.uint16_t, outLocalAddress *C.char, outLocalPort *C.uint16_t) C.int {
+	udpDialerAccess.RLock()
+	dialer, ok := udpDialerMap[uintptr(context)]
+	udpDialerAccess.RUnlock()
+	if !ok {
+		return -104 // ERR_CONNECTION_FAILED
+	}
+	fd, localAddress, localPort := dialer(C.GoString(address), uint16(port))
+
+	// Write output parameters
+	if outLocalAddress != nil && localAddress != "" {
+		localAddressC := C.CString(localAddress)
+		C.strcpy(outLocalAddress, localAddressC)
+		C.free(unsafe.Pointer(localAddressC))
+	}
+	if outLocalPort != nil {
+		*outLocalPort = C.uint16_t(localPort)
+	}
+
+	return C.int(fd)
+}
+
 func NewEngine() Engine {
 	return Engine{uintptr(unsafe.Pointer(C.Cronet_Engine_Create()))}
 }
@@ -38,6 +65,9 @@ func (e Engine) Destroy() {
 	dialerAccess.Lock()
 	delete(dialerMap, e.ptr)
 	dialerAccess.Unlock()
+	udpDialerAccess.Lock()
+	delete(udpDialerMap, e.ptr)
+	udpDialerAccess.Unlock()
 	C.Cronet_Engine_Destroy(C.Cronet_EnginePtr(unsafe.Pointer(e.ptr)))
 }
 
@@ -221,6 +251,29 @@ func (e Engine) SetDialer(dialer Dialer) {
 	C.Cronet_Engine_SetDialer(
 		C.Cronet_EnginePtr(unsafe.Pointer(e.ptr)),
 		(*[0]byte)(C.cronetDialerCallback),
+		unsafe.Pointer(e.ptr),
+	)
+}
+
+// SetUDPDialer sets a custom dialer for UDP sockets.
+// When set, the engine will use this callback to create UDP sockets instead of
+// the default system socket API.
+// Must be called before StartWithParams().
+// Pass nil to disable custom dialing.
+func (e Engine) SetUDPDialer(dialer UDPDialer) {
+	if dialer == nil {
+		C.Cronet_Engine_SetUdpDialer(C.Cronet_EnginePtr(unsafe.Pointer(e.ptr)), nil, nil)
+		udpDialerAccess.Lock()
+		delete(udpDialerMap, e.ptr)
+		udpDialerAccess.Unlock()
+		return
+	}
+	udpDialerAccess.Lock()
+	udpDialerMap[e.ptr] = dialer
+	udpDialerAccess.Unlock()
+	C.Cronet_Engine_SetUdpDialer(
+		C.Cronet_EnginePtr(unsafe.Pointer(e.ptr)),
+		(*[0]byte)(C.cronetUdpDialerCallback),
 		unsafe.Pointer(e.ptr),
 	)
 }

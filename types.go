@@ -291,3 +291,19 @@ const (
 //	ERR_ADDRESS_UNREACHABLE (-109)
 //	ERR_CONNECTION_TIMED_OUT (-118)
 type Dialer func(address string, port uint16) int
+
+// UDPDialer is a callback function for custom UDP socket creation.
+// address: IP address string (e.g. "1.2.3.4" or "::1")
+// port: Port number
+// Returns:
+//   - fd: socket fd on success, negative net error code on failure
+//   - localAddress: local IP address string (may be empty)
+//   - localPort: local port number
+//
+// The returned socket can be:
+//   - AF_INET/AF_INET6 SOCK_DGRAM: Standard UDP socket (may be connected)
+//   - AF_UNIX SOCK_DGRAM: Unix domain datagram socket (Unix/macOS/Linux)
+//   - AF_UNIX SOCK_STREAM: Unix domain stream socket (Windows, with framing)
+//
+// Cronet will NOT call connect() on the returned socket.
+type UDPDialer func(address string, port uint16) (fd int, localAddress string, localPort uint16)

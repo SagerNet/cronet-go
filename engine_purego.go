@@ -12,9 +12,12 @@ import (
 )
 
 var (
-	dialerAccess   sync.RWMutex
-	dialerMap      = make(map[uintptr]Dialer)
-	dialerCallback uintptr
+	dialerAccess      sync.RWMutex
+	dialerMap         = make(map[uintptr]Dialer)
+	udpDialerAccess   sync.RWMutex
+	udpDialerMap      = make(map[uintptr]UDPDialer)
+	dialerCallback    uintptr
+	udpDialerCallback uintptr
 )
 
 func init() {
@@ -27,6 +30,31 @@ func init() {
 		}
 		return dialer(cronet.GoString(address), port)
 	})
+
+	udpDialerCallback = purego.NewCallback(func(context uintptr, address uintptr, port uint16, outLocalAddress uintptr, outLocalPort uintptr) int {
+		udpDialerAccess.RLock()
+		dialer, ok := udpDialerMap[context]
+		udpDialerAccess.RUnlock()
+		if !ok {
+			return -104 // ERR_CONNECTION_FAILED
+		}
+		fd, localAddress, localPort := dialer(cronet.GoString(address), port)
+
+		// Write output parameters using unsafe
+		if outLocalAddress != 0 && localAddress != "" {
+			localAddressBytes := []byte(localAddress)
+			for i, b := range localAddressBytes {
+				*(*byte)(unsafe.Add(unsafe.Pointer(outLocalAddress), i)) = b
+			}
+			// Null terminator
+			*(*byte)(unsafe.Add(unsafe.Pointer(outLocalAddress), len(localAddressBytes))) = 0
+		}
+		if outLocalPort != 0 {
+			*(*uint16)(unsafe.Pointer(outLocalPort)) = localPort
+		}
+
+		return fd
+	})
 }
 
 func NewEngine() Engine {
@@ -37,6 +65,9 @@ func (e Engine) Destroy() {
 	dialerAccess.Lock()
 	delete(dialerMap, e.ptr)
 	dialerAccess.Unlock()
+	udpDialerAccess.Lock()
+	delete(udpDialerMap, e.ptr)
+	udpDialerAccess.Unlock()
 	cronet.EngineDestroy(e.ptr)
 }
 
@@ -198,4 +229,23 @@ func (e Engine) SetDialer(dialer Dialer) {
 	dialerMap[e.ptr] = dialer
 	dialerAccess.Unlock()
 	cronet.EngineSetDialer(e.ptr, dialerCallback, e.ptr)
+}
+
+// SetUDPDialer sets a custom dialer for UDP sockets.
+// When set, the engine will use this callback to create UDP sockets instead of
+// the default system socket API.
+// Must be called before StartWithParams().
+// Pass nil to disable custom dialing.
+func (e Engine) SetUDPDialer(dialer UDPDialer) {
+	if dialer == nil {
+		cronet.EngineSetUdpDialer(e.ptr, 0, 0)
+		udpDialerAccess.Lock()
+		delete(udpDialerMap, e.ptr)
+		udpDialerAccess.Unlock()
+		return
+	}
+	udpDialerAccess.Lock()
+	udpDialerMap[e.ptr] = dialer
+	udpDialerAccess.Unlock()
+	cronet.EngineSetUdpDialer(e.ptr, udpDialerCallback, e.ptr)
 }

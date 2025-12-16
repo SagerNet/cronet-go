@@ -32,6 +32,32 @@ func TestDialerMapCleanup(t *testing.T) {
 	}
 }
 
+func TestUDPDialerMapCleanup(t *testing.T) {
+	engine := NewEngine()
+
+	engine.SetUDPDialer(func(address string, port uint16) (int, string, uint16) {
+		return -104, "", 0 // ERR_CONNECTION_FAILED
+	})
+
+	udpDialerAccess.RLock()
+	_, exists := udpDialerMap[engine.ptr]
+	udpDialerAccess.RUnlock()
+
+	if !exists {
+		t.Error("dialer not registered in udpDialerMap")
+	}
+
+	engine.Destroy()
+
+	udpDialerAccess.RLock()
+	_, exists = udpDialerMap[engine.ptr]
+	udpDialerAccess.RUnlock()
+
+	if exists {
+		t.Error("dialer not cleaned up after Engine.Destroy()")
+	}
+}
+
 func TestSetDialerNil(t *testing.T) {
 	engine := NewEngine()
 	defer engine.Destroy()
@@ -58,6 +84,33 @@ func TestSetDialerNil(t *testing.T) {
 
 	if exists {
 		t.Error("dialer not removed after SetDialer(nil)")
+	}
+}
+
+func TestSetUDPDialerNil(t *testing.T) {
+	engine := NewEngine()
+	defer engine.Destroy()
+
+	engine.SetUDPDialer(func(address string, port uint16) (int, string, uint16) {
+		return -104, "", 0
+	})
+
+	udpDialerAccess.RLock()
+	_, exists := udpDialerMap[engine.ptr]
+	udpDialerAccess.RUnlock()
+
+	if !exists {
+		t.Error("dialer not registered")
+	}
+
+	engine.SetUDPDialer(nil)
+
+	udpDialerAccess.RLock()
+	_, exists = udpDialerMap[engine.ptr]
+	udpDialerAccess.RUnlock()
+
+	if exists {
+		t.Error("dialer not removed after SetUDPDialer(nil)")
 	}
 }
 

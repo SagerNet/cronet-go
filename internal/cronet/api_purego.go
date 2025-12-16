@@ -73,6 +73,10 @@ func EngineSetDialer(engine, dialer, context uintptr) {
 	cronetEngineSetDialer(engine, dialer, context)
 }
 
+func EngineSetUdpDialer(engine, dialer, context uintptr) {
+	cronetEngineSetUdpDialer(engine, dialer, context)
+}
+
 func EngineGetStreamEngine(engine uintptr) uintptr {
 	return cronetEngineGetStreamEngine(engine)
 }

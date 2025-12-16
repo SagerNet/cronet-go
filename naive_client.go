@@ -3,7 +3,6 @@ package cronet
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"net"
 	"net/url"
@@ -12,6 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"syscall"
+	"time"
 
 	"github.com/sagernet/sing/common/bufio"
 	E "github.com/sagernet/sing/common/exceptions"
@@ -32,6 +32,8 @@ type NaiveClient struct {
 	extraHeaders                      map[string]string
 	trustedRootCertificates           string
 	trustedCertificatePublicKeySHA256 [][]byte
+	dnsResolver                       DNSResolverFunc
+	testForceUDPLoopback              bool
 	concurrency                       int
 	counter                           atomic.Uint64
 	engine                            Engine
@@ -51,7 +53,12 @@ type NaiveClientConfig struct {
 	ExtraHeaders                      map[string]string
 	TrustedRootCertificates           string   // PEM format
 	TrustedCertificatePublicKeySHA256 [][]byte // SPKI SHA256 hashes
+	DNSResolver                       DNSResolverFunc
 	Dialer                            N.Dialer
+
+	// TestForceUDPLoopback forces the use of UDP loopback sockets instead of
+	// Unix domain sockets for DNS interception. This is for testing only.
+	TestForceUDPLoopback bool
 }
 
 func NewNaiveClient(config NaiveClientConfig) (*NaiveClient, error) {
@@ -104,6 +111,8 @@ func NewNaiveClient(config NaiveClientConfig) (*NaiveClient, error) {
 		extraHeaders:                      config.ExtraHeaders,
 		trustedRootCertificates:           config.TrustedRootCertificates,
 		trustedCertificatePublicKeySHA256: config.TrustedCertificatePublicKeySHA256,
+		dnsResolver:                       config.DNSResolver,
+		testForceUDPLoopback:              config.TestForceUDPLoopback,
 		concurrency:                       concurrency,
 	}, nil
 }
@@ -124,7 +133,26 @@ func (c *NaiveClient) Start() error {
 	proxyContext, proxyCancel := context.WithCancel(c.ctx)
 	c.proxyCancel = proxyCancel
 
+	var dnsServerAddress M.Socksaddr
+	if c.dnsResolver != nil {
+		// Use placeholder address for DNS interception
+		dnsServerAddress = M.ParseSocksaddrHostPort("127.0.0.1", 53)
+	}
+
 	engine.SetDialer(func(address string, port uint16) int {
+		if c.dnsResolver != nil && dnsServerAddress.IsValid() && address == dnsServerAddress.AddrString() && port == dnsServerAddress.Port {
+			fd, conn, err := createSocketPair()
+			if err != nil {
+				return -104 // ERR_CONNECTION_FAILED
+			}
+
+			go func() {
+				_ = serveDNSStreamConn(proxyContext, conn, c.dnsResolver)
+			}()
+
+			return fd
+		}
+
 		conn, err := c.dialer.DialContext(proxyContext, N.NetworkTCP, M.ParseSocksaddrHostPort(address, port))
 		if err != nil {
 			return mapDialErrorToNetError(err)
@@ -166,17 +194,81 @@ func (c *NaiveClient) Start() error {
 		return fd
 	})
 
+	engine.SetUDPDialer(func(address string, port uint16) (fd int, localAddress string, localPort uint16) {
+		// When DNSResolver is set, intercept DNS traffic to the placeholder address
+		if c.dnsResolver != nil && dnsServerAddress.IsValid() && address == dnsServerAddress.AddrString() && port == dnsServerAddress.Port {
+			fd, conn, err := createPacketSocketPair(c.testForceUDPLoopback)
+			if err != nil {
+				return -104, "", 0 // ERR_CONNECTION_FAILED
+			}
+
+			go func() {
+				_ = serveDNSPacketConn(proxyContext, conn, c.dnsResolver)
+			}()
+
+			return fd, address, port
+		}
+
+		conn, err := c.dialer.DialContext(proxyContext, N.NetworkUDP, M.ParseSocksaddrHostPort(address, port))
+		if err != nil {
+			return mapDialErrorToNetError(err), "", 0
+		}
+
+		// Try to get local address from connection
+		if localAddr := conn.LocalAddr(); localAddr != nil {
+			if udpAddr, ok := localAddr.(*net.UDPAddr); ok {
+				localAddress = udpAddr.IP.String()
+				localPort = uint16(udpAddr.Port)
+			}
+		}
+
+		if syscallConn, ok := conn.(syscall.Conn); ok {
+			fd, duplicateError := dupSocketFD(syscallConn)
+			if duplicateError == nil {
+				conn.Close()
+				return fd, localAddress, localPort
+			}
+		}
+
+		if udpConn, ok := N.CastReader[*net.UDPConn](conn); ok {
+			fd, duplicateError := dupSocketFD(udpConn)
+			if duplicateError == nil {
+				conn.Close()
+				return fd, localAddress, localPort
+			}
+		}
+
+		// Fallback path: create packet socketpair and proxy the connection
+		fd, pipeConn, err := createPacketSocketPair(c.testForceUDPLoopback)
+		if err != nil {
+			conn.Close()
+			return -104, "", 0 // ERR_CONNECTION_FAILED
+		}
+
+		c.proxyWaitGroup.Add(1)
+		go func() {
+			defer c.proxyWaitGroup.Done()
+			proxyUDPConnection(proxyContext, conn, pipeConn)
+			conn.Close()
+			pipeConn.Close()
+		}()
+
+		return fd, localAddress, localPort
+	})
+
 	params := NewEngineParams()
 	params.SetEnableHTTP2(true)
 
-	// Map server hostname to actual IP address for DNS resolution
-	experimentalOptions := map[string]any{
-		"HostResolverRules": map[string]any{
-			"host_resolver_rules": F.ToString("MAP ", c.serverName, " ", c.serverAddress.AddrString()),
-		},
+	if dnsServerAddress.IsValid() {
+		err := params.SetAsyncDNS(true)
+		if err != nil {
+			return err
+		}
+		err = params.SetDNSServerOverride([]string{dnsServerAddress.String()})
+		if err != nil {
+			return err
+		}
 	}
-	experimentalOptionsJSON, _ := json.Marshal(experimentalOptions)
-	params.SetExperimentalOptions(string(experimentalOptionsJSON))
 
 	engine.StartWithParams(params)
 	params.Destroy()
@@ -316,4 +408,87 @@ type trackedNaiveConn struct {
 func (c *trackedNaiveConn) Close() error {
 	c.closeOnce.Do(c.onClose)
 	return c.NaiveConn.Close()
+}
+
+// proxyUDPConnection proxies UDP packets between an upstream connection and a pipe (socketpair).
+// The upstream connection is a connected UDP socket (net.Conn), and the pipe is a PacketConn
+// that connects to Chromium via socketpair.
+func proxyUDPConnection(ctx context.Context, upstreamConn net.Conn, pipeConn net.PacketConn) {
+	// Close both connections when context is cancelled.
+	// For datagram socketpairs, closing the peer doesn't unblock ReadFrom.
+	go func() {
+		<-ctx.Done()
+		upstreamConn.Close()
+		pipeConn.Close()
+	}()
+
+	// Determine if pipeConn is a Unix socketpair (use Write instead of WriteTo)
+	var pipeWriter interface{ Write([]byte) (int, error) }
+	if unixConn, ok := pipeConn.(*net.UnixConn); ok {
+		pipeWriter = unixConn
+	}
+
+	// pipe → upstream (Chromium sends data to remote)
+	go func() {
+		buffer := make([]byte, 64*1024)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
+			if deadlineConn, ok := pipeConn.(interface{ SetReadDeadline(time.Time) error }); ok {
+				_ = deadlineConn.SetReadDeadline(time.Now().Add(time.Second))
+			}
+
+			n, _, err := pipeConn.ReadFrom(buffer)
+			if err != nil {
+				if errors.Is(err, net.ErrClosed) {
+					return
+				}
+				if netError := (*net.OpError)(nil); errors.As(err, &netError) && netError.Timeout() {
+					continue
+				}
+				return
+			}
+
+			_, err = upstreamConn.Write(buffer[:n])
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	// upstream → pipe (remote sends data to Chromium)
+	buffer := make([]byte, 64*1024)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		if err := upstreamConn.SetReadDeadline(time.Now().Add(time.Second)); err == nil {
+			// deadline set successfully
+		}
+
+		n, err := upstreamConn.Read(buffer)
+		if err != nil {
+			if errors.Is(err, net.ErrClosed) {
+				return
+			}
+			if netError := (*net.OpError)(nil); errors.As(err, &netError) && netError.Timeout() {
+				continue
+			}
+			return
+		}
+
+		// Write to pipe: use Write() for Unix socketpair, WriteTo() for others
+		if pipeWriter != nil {
+			_, _ = pipeWriter.Write(buffer[:n])
+		} else {
+			_, _ = pipeConn.WriteTo(buffer[:n], nil)
+		}
+	}
 }
