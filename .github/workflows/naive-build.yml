@@ -432,6 +432,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Linux
           - name: linux-amd64-cgo
             os: ubuntu-22.04
             artifact: cronet-linux-amd64
@@ -442,15 +443,39 @@ jobs:
             artifact: cronet-linux-amd64
             target: linux/amd64
             mode: purego
-          - name: darwin-arm64
+          # macOS ARM64
+          - name: darwin-arm64-macos15
             os: macos-15
             artifact: cronet-darwin-arm64
             target: darwin/arm64
             mode: cgo
-          - name: windows-amd64
+          - name: darwin-arm64-macos26
+            os: macos-26
+            artifact: cronet-darwin-arm64
+            target: darwin/arm64
+            mode: cgo
+          # macOS x64 (Intel)
+          - name: darwin-amd64-macos15
+            os: macos-15-intel
+            artifact: cronet-darwin-amd64
+            target: darwin/amd64
+            mode: cgo
+          # Windows x64
+          - name: windows-amd64-2022
             os: windows-2022
             artifact: cronet-windows-amd64
             target: windows/amd64
+            mode: purego
+          - name: windows-amd64-2025
+            os: windows-2025
+            artifact: cronet-windows-amd64
+            target: windows/amd64
+            mode: purego
+          # Windows ARM64
+          - name: windows-arm64
+            os: windows-11-arm
+            artifact: cronet-windows-arm64
+            target: windows/arm64
             mode: purego
     runs-on: ${{ matrix.os }}
     steps:
@@ -506,7 +531,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: naiveproxy/src/out
-          key: naive-build-${{ steps.naive.outputs.commit }}-${{ hashFiles('cmd/build-naive/cmd_build.go', 'cmd/build-naive/cmd.go') }}-darwin-arm64
+          key: naive-build-${{ steps.naive.outputs.commit }}-${{ hashFiles('cmd/build-naive/cmd_build.go', 'cmd/build-naive/cmd.go') }}-${{ contains(matrix.target, 'amd64') && 'darwin-amd64' || 'darwin-arm64' }}
 
       # Install iperf3
       - name: Install iperf3 (Linux)
@@ -554,8 +579,12 @@ jobs:
         working-directory: test
         shell: bash
         run: |
-          # Add DLL directory to PATH for library loading
-          export PATH="$PWD/../lib/windows_amd64:$PATH"
+          # Determine library directory based on target architecture
+          case "${{ matrix.target }}" in
+            */arm64) LIB_DIR="windows_arm64" ;;
+            */amd64) LIB_DIR="windows_amd64" ;;
+          esac
+          export PATH="$PWD/../lib/${LIB_DIR}:$PATH"
           go test -tags with_purego -v
 
   publish:
