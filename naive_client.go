@@ -33,6 +33,9 @@ type NaiveClient struct {
 	trustedRootCertificates           string
 	trustedCertificatePublicKeySHA256 [][]byte
 	dnsResolver                       DNSResolverFunc
+	echEnabled                        bool
+	echConfigList                     []byte
+	echMutex                          sync.RWMutex
 	testForceUDPLoopback              bool
 	concurrency                       int
 	counter                           atomic.Uint64
@@ -56,6 +59,22 @@ type NaiveClientConfig struct {
 	DNSResolver                       DNSResolverFunc
 	Dialer                            N.Dialer
 
+	// ECHEnabled enables Encrypted Client Hello support.
+	// When true, Chromium will query HTTPS records from DNS to obtain ECH configs.
+	// This works with or without a custom DNSResolver:
+	// - With DNSResolver: ECH configs from custom DNS (or ECHConfigList if set)
+	// - Without DNSResolver: ECH configs from system DNS
+	ECHEnabled bool
+
+	// ECHConfigList is the raw ECH config list in wire format (not PEM).
+	// When set, the DNS resolver will inject this into HTTPS record responses
+	// for the server name. This allows manual ECH configuration when the
+	// upstream DNS doesn't provide ECH configs.
+	// Requires DNSResolver to be set for injection.
+	// If ECH negotiation fails and the server provides retry configs,
+	// NaiveClient will automatically update this value internally.
+	ECHConfigList []byte
+
 	// TestForceUDPLoopback forces the use of UDP loopback sockets instead of
 	// Unix domain sockets for DNS interception. This is for testing only.
 	TestForceUDPLoopback bool
@@ -68,6 +87,9 @@ func NewNaiveClient(config NaiveClientConfig) (*NaiveClient, error) {
 	}
 	if !config.ServerAddress.IsValid() {
 		return nil, E.New("invalid server address")
+	}
+	if len(config.ECHConfigList) > 0 && config.DNSResolver == nil {
+		return nil, E.New("ECHConfigList requires DNSResolver to be set")
 	}
 
 	serverName := config.ServerName
@@ -112,6 +134,8 @@ func NewNaiveClient(config NaiveClientConfig) (*NaiveClient, error) {
 		trustedRootCertificates:           config.TrustedRootCertificates,
 		trustedCertificatePublicKeySHA256: config.TrustedCertificatePublicKeySHA256,
 		dnsResolver:                       config.DNSResolver,
+		echEnabled:                        config.ECHEnabled,
+		echConfigList:                     config.ECHConfigList,
 		testForceUDPLoopback:              config.TestForceUDPLoopback,
 		concurrency:                       concurrency,
 	}, nil
@@ -134,20 +158,29 @@ func (c *NaiveClient) Start() error {
 	c.proxyCancel = proxyCancel
 
 	var dnsServerAddress M.Socksaddr
+	var dnsResolver DNSResolverFunc
 	if c.dnsResolver != nil {
 		// Use placeholder address for DNS interception
 		dnsServerAddress = M.ParseSocksaddrHostPort("127.0.0.1", 53)
+
+		if c.echEnabled {
+			// Wrap DNS resolver to inject ECH config into HTTPS records.
+			// Use a getter function so dynamic updates via SetECHConfigList() work.
+			dnsResolver = wrapDNSResolverWithECH(c.dnsResolver, c.serverName, c.getECHConfigList)
+		} else {
+			dnsResolver = c.dnsResolver
+		}
 	}
 
 	engine.SetDialer(func(address string, port uint16) int {
-		if c.dnsResolver != nil && dnsServerAddress.IsValid() && address == dnsServerAddress.AddrString() && port == dnsServerAddress.Port {
+		if dnsResolver != nil && dnsServerAddress.IsValid() && address == dnsServerAddress.AddrString() && port == dnsServerAddress.Port {
 			fd, conn, err := createSocketPair()
 			if err != nil {
 				return -104 // ERR_CONNECTION_FAILED
 			}
 
 			go func() {
-				_ = serveDNSStreamConn(proxyContext, conn, c.dnsResolver)
+				_ = serveDNSStreamConn(proxyContext, conn, dnsResolver)
 			}()
 
 			return fd
@@ -196,14 +229,14 @@ func (c *NaiveClient) Start() error {
 
 	engine.SetUDPDialer(func(address string, port uint16) (fd int, localAddress string, localPort uint16) {
 		// When DNSResolver is set, intercept DNS traffic to the placeholder address
-		if c.dnsResolver != nil && dnsServerAddress.IsValid() && address == dnsServerAddress.AddrString() && port == dnsServerAddress.Port {
+		if dnsResolver != nil && dnsServerAddress.IsValid() && address == dnsServerAddress.AddrString() && port == dnsServerAddress.Port {
 			fd, conn, err := createPacketSocketPair(c.testForceUDPLoopback)
 			if err != nil {
 				return -104, "", 0 // ERR_CONNECTION_FAILED
 			}
 
 			go func() {
-				_ = serveDNSPacketConn(proxyContext, conn, c.dnsResolver)
+				_ = serveDNSPacketConn(proxyContext, conn, dnsResolver)
 			}()
 
 			return fd, address, port
@@ -265,6 +298,14 @@ func (c *NaiveClient) Start() error {
 			return err
 		}
 		err = params.SetDNSServerOverride([]string{dnsServerAddress.String()})
+		if err != nil {
+			return err
+		}
+	}
+
+	if c.echEnabled {
+		// Enable HTTPS/SVCB DNS record lookups for ECH support
+		err := params.SetUseDnsHttpsSvcb(true)
 		if err != nil {
 			return err
 		}
@@ -341,6 +382,28 @@ func (c *NaiveClient) Close() error {
 	c.engine.Shutdown()
 	c.engine.Destroy()
 	return nil
+}
+
+// getECHConfigList returns the current ECH config list (thread-safe).
+// This is used internally by the DNS resolver wrapper.
+func (c *NaiveClient) getECHConfigList() []byte {
+	c.echMutex.RLock()
+	defer c.echMutex.RUnlock()
+	return c.echConfigList
+}
+
+// ECHConfigList returns the current ECH config list.
+func (c *NaiveClient) ECHConfigList() []byte {
+	return c.getECHConfigList()
+}
+
+// SetECHConfigList updates the ECH configuration for future connections.
+// The new config will be injected into DNS HTTPS record responses.
+// This is typically called when ECH retry configs are received from the server.
+func (c *NaiveClient) SetECHConfigList(echConfigList []byte) {
+	c.echMutex.Lock()
+	defer c.echMutex.Unlock()
+	c.echConfigList = echConfigList
 }
 
 // mapDialErrorToNetError maps Go dial errors to Chromium net error codes.

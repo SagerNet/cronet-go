@@ -8,6 +8,7 @@ require (
 	github.com/sagernet/sing v0.7.13
 	github.com/stretchr/testify v1.11.1
 	go.uber.org/goleak v1.3.0
+	golang.org/x/crypto v0.38.0
 )
 
 require (

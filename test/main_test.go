@@ -431,12 +431,16 @@ func startNaiveServer(t *testing.T, certPem, keyPem string) {
 	err = os.WriteFile(configPath, []byte(config), 0o644)
 	require.NoError(t, err)
 
+	startNaiveServerWithConfig(t, binary, configPath)
+}
+
+func startNaiveServerWithConfig(t *testing.T, binary, configPath string) {
 	cmd := exec.Command(binary, "run", "-c", configPath)
 	if testing.Verbose() {
 		cmd.Stdout = os.Stderr
 		cmd.Stderr = os.Stderr
 	}
-	err = cmd.Start()
+	err := cmd.Start()
 	require.NoError(t, err)
 
 	t.Cleanup(func() {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"strings"
 	"time"
 
 	mDNS "github.com/miekg/dns"
@@ -164,4 +165,118 @@ func truncatedDNSResponse(request *mDNS.Msg, rcode int) *mDNS.Msg {
 	response.Truncated = true
 	response.Rcode = rcode
 	return response
+}
+
+// wrapDNSResolverWithECH wraps a DNS resolver to inject ECH config into HTTPS
+// record responses for the specified server name. The echConfigGetter is called
+// on each HTTPS query to get the current ECH config (allowing dynamic updates).
+func wrapDNSResolverWithECH(
+	resolver DNSResolverFunc,
+	serverName string,
+	echConfigGetter func() []byte,
+) DNSResolverFunc {
+	return func(ctx context.Context, request *mDNS.Msg) *mDNS.Msg {
+		response := resolver(ctx, request)
+
+		// Check if this is an HTTPS query for our server
+		if len(request.Question) > 0 {
+			question := request.Question[0]
+			if question.Qtype == mDNS.TypeHTTPS && matchesServerName(question.Name, serverName) {
+				echConfig := echConfigGetter()
+				if len(echConfig) > 0 {
+					return injectECHConfig(request, response, echConfig)
+				}
+			}
+		}
+		return response
+	}
+}
+
+// matchesServerName checks if a DNS query name matches the server name.
+// The query name is in DNS wire format (FQDN with trailing dot).
+// For HTTPS records, Chromium may query in the format "_<port>._https.<name>"
+// when querying for a specific port.
+func matchesServerName(queryName, serverName string) bool {
+	// Normalize: remove trailing dot from query name if present
+	queryName = strings.TrimSuffix(queryName, ".")
+	serverName = strings.TrimSuffix(serverName, ".")
+
+	// Direct match
+	if strings.EqualFold(queryName, serverName) {
+		return true
+	}
+
+	// Check for port-prefixed HTTPS query format: _<port>._https.<name>
+	// Example: _443._https.example.org for example.org:443
+	if strings.HasPrefix(queryName, "_") {
+		parts := strings.SplitN(queryName, "._https.", 2)
+		if len(parts) == 2 {
+			return strings.EqualFold(parts[1], serverName)
+		}
+	}
+
+	return false
+}
+
+// injectECHConfig injects or replaces ECH config in an HTTPS record response.
+// If the response is nil or has no HTTPS records, a synthetic response is created.
+func injectECHConfig(request *mDNS.Msg, response *mDNS.Msg, echConfig []byte) *mDNS.Msg {
+	if response == nil {
+		response = new(mDNS.Msg)
+		response.SetReply(request)
+	}
+
+	// Look for existing HTTPS records and update their ECH config
+	hasHTTPS := false
+	for _, rr := range response.Answer {
+		if https, ok := rr.(*mDNS.HTTPS); ok {
+			hasHTTPS = true
+			updateECHInSVCB(&https.SVCB, echConfig)
+		}
+	}
+
+	// If no HTTPS records exist, synthesize one
+	if !hasHTTPS && len(request.Question) > 0 {
+		queryName := request.Question[0].Name
+
+		// Extract the actual server name from port-prefixed HTTPS queries
+		// Format: _<port>._https.<server_name>. -> server_name.
+		targetName := queryName
+		if strings.HasPrefix(queryName, "_") {
+			parts := strings.SplitN(queryName, "._https.", 2)
+			if len(parts) == 2 {
+				targetName = parts[1]
+			}
+		}
+
+		https := &mDNS.HTTPS{
+			SVCB: mDNS.SVCB{
+				Hdr: mDNS.RR_Header{
+					Name:   queryName,
+					Rrtype: mDNS.TypeHTTPS,
+					Class:  mDNS.ClassINET,
+					Ttl:    300,
+				},
+				Priority: 1,
+				Target:   targetName,
+			},
+		}
+		https.Value = append(https.Value, &mDNS.SVCBECHConfig{ECH: echConfig})
+		response.Answer = append(response.Answer, https)
+	}
+
+	return response
+}
+
+// updateECHInSVCB updates or adds ECH config in an SVCB record's key-value pairs.
+func updateECHInSVCB(svcb *mDNS.SVCB, echConfig []byte) {
+	// Look for existing ECH key and update it
+	for i, kv := range svcb.Value {
+		if _, ok := kv.(*mDNS.SVCBECHConfig); ok {
+			svcb.Value[i] = &mDNS.SVCBECHConfig{ECH: echConfig}
+			return
+		}
+	}
+	// No existing ECH key, add one
+	svcb.Value = append(svcb.Value, &mDNS.SVCBECHConfig{ECH: echConfig})
 }

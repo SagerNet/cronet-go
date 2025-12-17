@@ -64,3 +64,16 @@ func (p EngineParams) SetHostResolverRules(rules string) error {
 		"host_resolver_rules": rules,
 	})
 }
+
+// SetUseDnsHttpsSvcb enables or disables DNS HTTPS SVCB record lookups.
+// When enabled, Chromium will query DNS for HTTPS records (type 65) which can
+// contain ECH (Encrypted Client Hello) configurations and ALPN hints.
+// This is required for ECH support.
+func (p EngineParams) SetUseDnsHttpsSvcb(enable bool) error {
+	if !enable {
+		return p.SetExperimentalOption("UseDnsHttpsSvcb", nil)
+	}
+	return p.SetExperimentalOption("UseDnsHttpsSvcb", map[string]any{
+		"enable": true,
+	})
+}
