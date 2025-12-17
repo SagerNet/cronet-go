@@ -621,7 +621,7 @@ jobs:
         run: go run ./cmd/build-naive publish --branch ${{ env.TARGET_BRANCH }}
 
   release:
-    needs: [linux]
+    needs: [linux, windows]
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-22.04
     steps:
@@ -634,6 +634,13 @@ jobs:
           path: artifacts/
           merge-multiple: false
 
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: cronet-windows-*
+          path: artifacts/
+          merge-multiple: false
+
       - name: Get Chromium version
         id: chromium
         run: |
@@ -643,6 +650,8 @@ jobs:
       - name: Prepare release assets
         run: |
           mkdir -p release
+
+          # Linux glibc shared libraries
           for dir in artifacts/cronet-linux-*/lib/linux_*; do
             if [[ "$dir" != *_musl ]]; then
               ARCH=$(basename "$dir" | sed 's/linux_//')
@@ -651,6 +660,15 @@ jobs:
               fi
             fi
           done
+
+          # Windows DLLs
+          for dir in artifacts/cronet-windows-*/lib/windows_*; do
+            ARCH=$(basename "$dir" | sed 's/windows_//')
+            if [ -f "$dir/libcronet.dll" ]; then
+              cp "$dir/libcronet.dll" "release/libcronet-windows-${ARCH}.dll"
+            fi
+          done
+
           ls -la release/
 
       - name: Create or update release draft
@@ -672,5 +690,5 @@ jobs:
               --notes "Cronet Go binding release based on Chromium $CHROMIUM_VERSION"
           fi
 
-          # Upload assets
-          gh release upload "$VERSION" release/*.so --clobber
+          # Upload assets (Linux .so and Windows .dll)
+          gh release upload "$VERSION" release/* --clobber

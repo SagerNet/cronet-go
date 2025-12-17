@@ -10,8 +10,6 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/sagernet/cronet-go/internal/memmod"
-
 	"github.com/ebitengine/purego"
 )
 
@@ -19,8 +17,6 @@ var (
 	loadOnce  sync.Once
 	loadError error
 	libHandle uintptr
-	memmodLib *memmod.Module
-	useMemmod bool
 )
 
 func LoadLibrary(path string) error {
@@ -31,13 +27,6 @@ func LoadLibrary(path string) error {
 }
 
 func ensureLoaded() {
-	if embeddedDLL != nil {
-		err := LoadLibraryFromMemory(embeddedDLL)
-		if err != nil {
-			panic(err)
-		}
-		return
-	}
 	err := LoadLibrary("")
 	if err != nil {
 		panic(err)
@@ -45,58 +34,20 @@ func ensureLoaded() {
 }
 
 func doLoadLibrary(path string) error {
-	if path == "" && embeddedDLL != nil {
-		return doLoadLibraryFromMemory(embeddedDLL)
-	}
-
 	if path == "" {
 		path = findLibrary()
 	}
 
 	if path == "" {
-		return errors.New("cronet: library not found")
+		return errors.New("cronet: library not found. Place libcronet.dll in the executable directory or PATH")
 	}
 
 	handle, err := syscall.LoadLibrary(path)
-	if err == nil {
-		libHandle = uintptr(handle)
-		return registerSymbols()
-	}
-
-	// If standard load fails, try in-memory loading
-	// This is useful when the DLL is embedded or in a non-standard location
-	dllData, readErr := os.ReadFile(path)
-	if readErr != nil {
-		return fmt.Errorf("cronet: failed to load library %s: LoadLibrary: %w, ReadFile: %v", path, err, readErr)
-	}
-
-	module, loadErr := memmod.LoadLibrary(dllData)
-	if loadErr != nil {
-		return fmt.Errorf("cronet: failed to load library in memory: %w", loadErr)
-	}
-
-	memmodLib = module
-	useMemmod = true
-	return registerSymbols()
-}
-
-// LoadLibraryFromMemory loads the cronet DLL from memory (embedded DLL).
-// This function is safe to call from multiple goroutines.
-func LoadLibraryFromMemory(data []byte) error {
-	loadOnce.Do(func() {
-		loadError = doLoadLibraryFromMemory(data)
-	})
-	return loadError
-}
-
-func doLoadLibraryFromMemory(data []byte) error {
-	module, err := memmod.LoadLibrary(data)
 	if err != nil {
-		return fmt.Errorf("cronet: failed to load library from memory: %w", err)
+		return fmt.Errorf("cronet: failed to load library %s: %w", path, err)
 	}
 
-	memmodLib = module
-	useMemmod = true
+	libHandle = uintptr(handle)
 	return registerSymbols()
 }
 
@@ -123,13 +74,6 @@ func findLibrary() string {
 }
 
 func lookupSymbol(name string) (uintptr, error) {
-	if useMemmod {
-		if memmodLib == nil {
-			return 0, errors.New("cronet: library not loaded")
-		}
-		return memmodLib.ProcAddressByName(name)
-	}
-
 	if libHandle == 0 {
 		return 0, errors.New("cronet: library not loaded")
 	}

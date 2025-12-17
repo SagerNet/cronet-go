@@ -69,3 +69,36 @@ go build
 - cronet-go/naiveproxy/src/third_party/llvm-build/Release+Asserts/
 - cronet-go/naiveproxy/src/out/sysroot-build/
 ```
+
+## Windows / purego Build Instructions
+
+For Windows or pure Go builds (no CGO), you need to distribute the dynamic library alongside your binary.
+
+### Download Library
+
+Download `libcronet.dll` (Windows) or `libcronet.so` (Linux) from [GitHub Releases](https://github.com/sagernet/cronet-go/releases).
+
+### Build with purego
+
+```bash
+# Windows (purego is required)
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags with_purego -o myapp.exe
+
+# Linux with purego (optional, for dynamic linking)
+CGO_ENABLED=0 go build -tags with_purego -o myapp
+```
+
+### Distribution
+
+Place the library file in the same directory as your executable:
+- Windows: `libcronet.dll`
+- Linux: `libcronet.so`
+
+### For Downstream Developers
+
+If you need to programmatically extract libraries from Go module dependencies (e.g., for CI/CD pipelines):
+
+```bash
+go run github.com/sagernet/cronet-go/cmd/build-naive@latest extract-lib --target windows/amd64 -n libcronet_amd64.dll
+go run github.com/sagernet/cronet-go/cmd/build-naive@latest extract-lib --target linux/amd64 -n libcronet_amd64.so
+```

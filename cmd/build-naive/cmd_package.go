@@ -80,13 +80,13 @@ func packageTargets(targets []Target) {
 				log.Printf("Copied static library for %s", formatTargetLog(t))
 			}
 
-			// For Linux glibc, also copy shared library (for testing and release, not for go module)
+			// For Linux glibc, also copy shared library (for purego mode)
 			if t.GOOS == "linux" && t.Libc != "musl" {
 				sourceShared := filepath.Join(srcRoot, outputDirectory, "libcronet.so")
 				destinationShared := filepath.Join(targetDirectory, "libcronet.so")
 				if _, err := os.Stat(sourceShared); err == nil {
 					copyFile(sourceShared, destinationShared)
-					log.Printf("Copied shared library for %s/%s", t.GOOS, t.ARCH)
+					log.Printf("Copied shared library for %s", formatTargetLog(t))
 				}
 			}
 		}
@@ -331,9 +331,10 @@ go 1.20
 		}
 
 		if t.GOOS == "windows" {
-			// Windows: only generate purego mode files (DLL embed)
+			// Windows: only generate purego mode files (version constant only)
 			// Static linking is not supported (Chromium uses MSVC, Go CGO only supports MinGW)
-			generateEmbedFile(targetDirectory, packageName, chromiumVersion)
+			// DLL is copied to lib directory for downstream extraction, must be distributed alongside binary
+			generateWindowsPuregoFile(targetDirectory, packageName, chromiumVersion)
 			runCommand(targetDirectory, "go", "mod", "tidy")
 			log.Printf("Generated submodule lib/%s (purego only)", directoryName)
 			continue
@@ -407,33 +408,20 @@ const Version = "%s"
 	log.Printf("Generated libcronet_purego.go for %s", packageName)
 }
 
-func generateEmbedFile(targetDirectory, packageName, chromiumVersion string) {
+func generateWindowsPuregoFile(targetDirectory, packageName, chromiumVersion string) {
+	// Windows: generate a simple version file (DLL must be distributed alongside the binary)
+	// The DLL file is still copied to the lib directory for downstream extraction
 	content := fmt.Sprintf(`//go:build with_purego
 
 package %s
 
-import (
-	_ "embed"
-	_ "unsafe"
-)
-
-//go:embed libcronet.dll
-var embeddedDLL []byte
-
-//go:linkname cronetEmbeddedDLL github.com/sagernet/cronet-go/internal/cronet.embeddedDLL
-var cronetEmbeddedDLL []byte
-
 const Version = "%s"
-
-func init() {
-	cronetEmbeddedDLL = embeddedDLL
-}
 `, packageName, chromiumVersion)
 
-	embedPath := filepath.Join(targetDirectory, "libcronet.go")
-	err := os.WriteFile(embedPath, []byte(content), 0o644)
+	filePath := filepath.Join(targetDirectory, "libcronet.go")
+	err := os.WriteFile(filePath, []byte(content), 0o644)
 	if err != nil {
 		log.Fatalf("failed to write libcronet.go: %v", err)
 	}
-	log.Printf("Generated libcronet.go for %s", packageName)
+	log.Printf("Generated libcronet.go for %s (version only)", packageName)
 }
