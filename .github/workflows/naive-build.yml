@@ -9,6 +9,8 @@ on:
         required: false
   push:
     branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
@@ -72,7 +74,8 @@ jobs:
             naiveproxy/src/third_party/llvm-build
             naiveproxy/src/gn/out
             naiveproxy/src/chrome/build/pgo_profiles
-          key: toolchain-linux-${{ steps.chromium.outputs.version }}
+          key: toolchain-linux-${{ matrix.arch }}-${{ steps.chromium.outputs.version }}
+          restore-keys: toolchain-linux-${{ matrix.arch }}-
       - name: Download clang and sysroot
         run: go run ./cmd/build-naive --target=linux/${{ matrix.arch }} download-toolchain
       - name: Install QEMU for cross-platform testing
@@ -113,7 +116,6 @@ jobs:
             include_cgo.go
 
   darwin:
-    if: github.event_name == 'push'
     runs-on: macos-15
     strategy:
       fail-fast: false
@@ -193,12 +195,11 @@ jobs:
             include_cgo.go
 
   windows:
-    if: github.event_name == 'push'
     runs-on: windows-2022
     strategy:
       fail-fast: false
       matrix:
-        arch: [amd64, arm64, "386"]
+        arch: [amd64, arm64]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -262,7 +263,6 @@ jobs:
             include_cgo.go
 
   android:
-    if: github.event_name == 'push'
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
@@ -338,7 +338,6 @@ jobs:
             include_cgo.go
 
   linux-musl:
-    if: github.event_name == 'push'
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
@@ -395,7 +394,8 @@ jobs:
             naiveproxy/src/third_party/llvm-build
             naiveproxy/src/gn/out
             naiveproxy/src/chrome/build/pgo_profiles
-          key: toolchain-linux-${{ steps.chromium.outputs.version }}
+          key: toolchain-linux-musl-${{ matrix.arch }}-${{ steps.chromium.outputs.version }}
+          restore-keys: toolchain-linux-musl-${{ matrix.arch }}-
       - name: Download toolchain
         run: go run ./cmd/build-naive --target=linux/${{ matrix.arch }} --libc=musl download-toolchain
       - name: Install QEMU for cross-platform testing
@@ -426,7 +426,7 @@ jobs:
             include_cgo.go
 
   integration-test:
-    if: github.event_name == 'push'
+    if: github.event_name != 'workflow_dispatch'
     needs: [linux, darwin, windows]
     strategy:
       fail-fast: false
@@ -442,6 +442,11 @@ jobs:
             os: ubuntu-22.04
             artifact: cronet-linux-amd64
             target: linux/amd64
+            mode: purego
+          - name: linux-arm64-purego
+            os: ubuntu-22.04-arm
+            artifact: cronet-linux-arm64
+            target: linux/arm64
             mode: purego
           # macOS ARM64
           - name: darwin-arm64-macos15
@@ -509,7 +514,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: naiveproxy/src/out
-          key: naive-build-${{ steps.naive.outputs.commit }}-${{ hashFiles('cmd/build-naive/cmd_build.go', 'cmd/build-naive/cmd.go') }}-linux-amd64
+          key: naive-build-${{ steps.naive.outputs.commit }}-${{ hashFiles('cmd/build-naive/cmd_build.go', 'cmd/build-naive/cmd.go') }}-linux-${{ contains(matrix.target, 'arm64') && 'arm64' || 'amd64' }}
 
       - name: Restore toolchain cache (Linux)
         if: runner.os == 'Linux'
@@ -519,11 +524,12 @@ jobs:
             naiveproxy/src/third_party/llvm-build
             naiveproxy/src/gn/out
             naiveproxy/src/chrome/build/pgo_profiles
-          key: toolchain-linux-${{ steps.chromium.outputs.version }}
+          key: toolchain-linux-${{ contains(matrix.target, 'arm64') && 'arm64' || 'amd64' }}-${{ steps.chromium.outputs.version }}
+          restore-keys: toolchain-linux-${{ contains(matrix.target, 'arm64') && 'arm64' || 'amd64' }}-
 
       - name: Download toolchain (Linux)
         if: runner.os == 'Linux'
-        run: go run ./cmd/build-naive --target=linux/amd64 download-toolchain
+        run: go run ./cmd/build-naive --target=${{ matrix.target }} download-toolchain
 
       # Darwin: restore build cache (needed for env command)
       - name: Restore build cache (macOS)
@@ -554,14 +560,8 @@ jobs:
         run: go run ./cmd/build-naive --target=${{ matrix.target }} package --local
 
       # CGO mode tests
-      - name: Run integration tests (CGO - Linux)
-        if: matrix.mode == 'cgo' && runner.os == 'Linux'
-        run: |
-          eval $(go run ./cmd/build-naive --target=${{ matrix.target }} env --export)
-          cd test && CGO_ENABLED=1 go test -v
-
-      - name: Run integration tests (CGO - macOS)
-        if: matrix.mode == 'cgo' && runner.os == 'macOS'
+      - name: Run integration tests (CGO)
+        if: matrix.mode == 'cgo'
         run: |
           eval $(go run ./cmd/build-naive --target=${{ matrix.target }} env --export)
           cd test && CGO_ENABLED=1 go test -v
@@ -571,7 +571,7 @@ jobs:
         if: matrix.mode == 'purego' && runner.os == 'Linux'
         working-directory: test
         run: |
-          export LD_LIBRARY_PATH=$PWD/../lib/linux_amd64
+          export LD_LIBRARY_PATH=$PWD/../lib/linux_${{ contains(matrix.target, 'arm64') && 'arm64' || 'amd64' }}
           CGO_ENABLED=0 go test -tags with_purego -v
 
       - name: Run integration tests (purego - Windows)
