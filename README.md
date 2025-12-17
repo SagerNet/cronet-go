@@ -20,7 +20,6 @@ Go bindings for [naiveproxy](https://github.com/klzgrad/naiveproxy).
 | linux/amd64   | linux   | x64   |
 | linux/arm     | linux   | arm   |
 | linux/arm64   | linux   | arm64 |
-| windows/386   | win     | x86   |
 | windows/amd64 | win     | x64   |
 | windows/arm64 | win     | arm64 |
 

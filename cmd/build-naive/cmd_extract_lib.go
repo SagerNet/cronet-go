@@ -22,7 +22,7 @@ and extracts the dynamic library to the output directory.
 
 Supported targets:
   - linux/amd64, linux/arm64, linux/386, linux/arm (glibc only)
-  - windows/amd64, windows/arm64, windows/386
+  - windows/amd64, windows/arm64
 
 Not supported (use static linking via CGO instead):
   - Linux musl (static only)

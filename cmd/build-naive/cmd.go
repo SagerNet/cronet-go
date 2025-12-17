@@ -33,7 +33,6 @@ var allTargets = []Target{
 	{OS: "mac", CPU: "arm64", GOOS: "darwin", ARCH: "arm64"},
 	{OS: "win", CPU: "x64", GOOS: "windows", ARCH: "amd64"},
 	{OS: "win", CPU: "arm64", GOOS: "windows", ARCH: "arm64"},
-	{OS: "win", CPU: "x86", GOOS: "windows", ARCH: "386"},
 	{OS: "ios", CPU: "arm64", GOOS: "ios", ARCH: "arm64", Platform: "iphoneos", Environment: "device"},
 	{OS: "ios", CPU: "arm64", GOOS: "ios", ARCH: "arm64", Platform: "iphoneos", Environment: "simulator"},
 	{OS: "ios", CPU: "x64", GOOS: "ios", ARCH: "amd64", Platform: "iphoneos", Environment: "simulator"},
