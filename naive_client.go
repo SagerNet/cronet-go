@@ -22,6 +22,22 @@ import (
 
 var _ N.Dialer = (*NaiveClient)(nil)
 
+// QUICCongestionControl represents the QUIC congestion control algorithm.
+type QUICCongestionControl string
+
+const (
+	// QUICCongestionControlDefault uses Chromium's default (BBR).
+	QUICCongestionControlDefault QUICCongestionControl = ""
+	// QUICCongestionControlBBR uses BBRv1.
+	QUICCongestionControlBBR QUICCongestionControl = "TBBR"
+	// QUICCongestionControlBBRv2 uses BBRv2.
+	QUICCongestionControlBBRv2 QUICCongestionControl = "B2ON"
+	// QUICCongestionControlCubic uses TCP Cubic.
+	QUICCongestionControlCubic QUICCongestionControl = "QBIC"
+	// QUICCongestionControlReno uses TCP Reno.
+	QUICCongestionControlReno QUICCongestionControl = "RENO"
+)
+
 type NaiveClient struct {
 	ctx                               context.Context
 	dialer                            N.Dialer
@@ -39,6 +55,7 @@ type NaiveClient struct {
 	echMutex                          sync.RWMutex
 	testForceUDPLoopback              bool
 	quicEnabled                       bool
+	quicCongestionControl             QUICCongestionControl
 	concurrency                       int
 	counter                           atomic.Uint64
 	engine                            Engine
@@ -89,6 +106,10 @@ type NaiveClientConfig struct {
 	// QUIC enables QUIC protocol and forces its use without TCP/HTTP fallback.
 	// The server must support QUIC (sing-box naive with network: udp).
 	QUIC bool
+
+	// QUICCongestionControl sets the congestion control algorithm for QUIC.
+	// Default is BBR. Only effective when QUIC is enabled.
+	QUICCongestionControl QUICCongestionControl
 }
 
 func NewNaiveClient(config NaiveClientConfig) (*NaiveClient, error) {
@@ -150,6 +171,7 @@ func NewNaiveClient(config NaiveClientConfig) (*NaiveClient, error) {
 		echQueryServerName:                config.ECHQueryServerName,
 		testForceUDPLoopback:              config.TestForceUDPLoopback,
 		quicEnabled:                       config.QUIC,
+		quicCongestionControl:             config.QUICCongestionControl,
 		concurrency:                       concurrency,
 	}, nil
 }
@@ -324,6 +346,15 @@ func (c *NaiveClient) Start() error {
 	if c.echEnabled {
 		// Enable HTTPS/SVCB DNS record lookups for ECH support
 		err := params.SetUseDnsHttpsSvcb(true)
+		if err != nil {
+			return err
+		}
+	}
+
+	if c.quicCongestionControl != "" {
+		err := params.SetExperimentalOption("QUIC", map[string]any{
+			"connection_options": string(c.quicCongestionControl),
+		})
 		if err != nil {
 			return err
 		}
