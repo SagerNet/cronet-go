@@ -38,6 +38,7 @@ type NaiveClient struct {
 	echQueryServerName                string
 	echMutex                          sync.RWMutex
 	testForceUDPLoopback              bool
+	quicEnabled                       bool
 	concurrency                       int
 	counter                           atomic.Uint64
 	engine                            Engine
@@ -84,6 +85,10 @@ type NaiveClientConfig struct {
 	// TestForceUDPLoopback forces the use of UDP loopback sockets instead of
 	// Unix domain sockets for DNS interception. This is for testing only.
 	TestForceUDPLoopback bool
+
+	// QUIC enables QUIC protocol and forces its use without TCP/HTTP fallback.
+	// The server must support QUIC (sing-box naive with network: udp).
+	QUIC bool
 }
 
 func NewNaiveClient(config NaiveClientConfig) (*NaiveClient, error) {
@@ -144,6 +149,7 @@ func NewNaiveClient(config NaiveClientConfig) (*NaiveClient, error) {
 		echConfigList:                     config.ECHConfigList,
 		echQueryServerName:                config.ECHQueryServerName,
 		testForceUDPLoopback:              config.TestForceUDPLoopback,
+		quicEnabled:                       config.QUIC,
 		concurrency:                       concurrency,
 	}, nil
 }
@@ -300,7 +306,11 @@ func (c *NaiveClient) Start() error {
 	})
 
 	params := NewEngineParams()
-	params.SetEnableHTTP2(true)
+	if c.quicEnabled {
+		params.SetEnableQuic(true)
+	} else {
+		params.SetEnableHTTP2(true)
+	}
 
 	err := params.SetAsyncDNS(true)
 	if err != nil {
@@ -339,6 +349,9 @@ func (c *NaiveClient) DialEarly(destination M.Socksaddr) (NaiveConn, error) {
 	}
 	if c.authorization != "" {
 		headers["proxy-authorization"] = c.authorization
+	}
+	if c.quicEnabled {
+		headers["-force-quic"] = "true"
 	}
 	for key, value := range c.extraHeaders {
 		headers[key] = value

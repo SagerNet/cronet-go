@@ -1,0 +1,21 @@
+{
+  "inbounds": [
+    {
+      "type": "naive",
+      "listen": "::",
+      "listen_port": 10002,
+      "network": "udp",
+      "users": [
+        {
+          "username": "test",
+          "password": "test"
+        }
+      ],
+      "tls": {
+        "enabled": true,
+        "certificate_path": "/cert.pem",
+        "key_path": "/key.pem"
+      }
+    }
+  ]
+}
