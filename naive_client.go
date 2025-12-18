@@ -61,6 +61,8 @@ type NaiveClient struct {
 	engine                            Engine
 	streamEngine                      StreamEngine
 	activeConnections                 sync.WaitGroup
+	connectionsMutex                  sync.Mutex
+	connections                       []*trackedNaiveConn
 	proxyWaitGroup                    sync.WaitGroup
 	proxyCancel                       context.CancelFunc
 }
@@ -392,17 +394,20 @@ func (c *NaiveClient) DialEarly(destination M.Socksaddr) (NaiveConn, error) {
 		concurrencyIndex := int(c.counter.Add(1) % uint64(c.concurrency))
 		headers["-network-isolation-key"] = F.ToString("https://pool-", concurrencyIndex, ":443")
 	}
-	c.activeConnections.Add(1)
 	conn := c.streamEngine.CreateConn(true, true)
 	err := conn.Start("CONNECT", c.serverURL, headers, 0, false)
 	if err != nil {
-		c.activeConnections.Done()
 		return nil, err
 	}
-	return &trackedNaiveConn{
+	trackedConn := &trackedNaiveConn{
 		NaiveConn: NewNaiveConn(conn),
-		onClose:   c.activeConnections.Done,
-	}, nil
+		client:    c,
+	}
+	c.connectionsMutex.Lock()
+	c.connections = append(c.connections, trackedConn)
+	c.connectionsMutex.Unlock()
+	c.activeConnections.Add(1)
+	return trackedConn, nil
 }
 
 func (c *NaiveClient) DialContext(ctx context.Context, network string, destination M.Socksaddr) (net.Conn, error) {
@@ -429,11 +434,32 @@ func (c *NaiveClient) Close() error {
 	if c.proxyCancel != nil {
 		c.proxyCancel()
 	}
+
+	c.connectionsMutex.Lock()
+	connections := make([]*trackedNaiveConn, len(c.connections))
+	copy(connections, c.connections)
+	c.connectionsMutex.Unlock()
+
+	for _, conn := range connections {
+		conn.Close()
+	}
+
 	c.proxyWaitGroup.Wait()
 	c.activeConnections.Wait()
 	c.engine.Shutdown()
 	c.engine.Destroy()
 	return nil
+}
+
+func (c *NaiveClient) removeConnection(conn *trackedNaiveConn) {
+	c.connectionsMutex.Lock()
+	defer c.connectionsMutex.Unlock()
+	for index, trackedConn := range c.connections {
+		if trackedConn == conn {
+			c.connections = append(c.connections[:index], c.connections[index+1:]...)
+			return
+		}
+	}
 }
 
 // getECHConfigList returns the current ECH config list (thread-safe).
@@ -516,12 +542,15 @@ func mapDialErrorToNetError(err error) int {
 
 type trackedNaiveConn struct {
 	NaiveConn
-	onClose   func()
+	client    *NaiveClient
 	closeOnce sync.Once
 }
 
 func (c *trackedNaiveConn) Close() error {
-	c.closeOnce.Do(c.onClose)
+	c.closeOnce.Do(func() {
+		c.client.removeConnection(c)
+		c.client.activeConnections.Done()
+	})
 	return c.NaiveConn.Close()
 }
 
