@@ -106,26 +106,18 @@ func startEchoServer(t *testing.T, port uint16) {
 			}
 			go func(c net.Conn) {
 				defer c.Close()
-				var transferred int64
 				buffer := make([]byte, 32*1024)
 				for {
 					n, readErr := c.Read(buffer)
 					if n > 0 {
-						transferred += int64(n)
 						_, writeErr := c.Write(buffer[:n])
 						if writeErr != nil {
 							return
 						}
 					}
 					if readErr != nil {
-						if readErr != io.EOF && testing.Verbose() {
-							t.Logf("echo server read error: %v", readErr)
-						}
 						break
 					}
-				}
-				if testing.Verbose() {
-					t.Logf("echo server connection closed, bytes=%d", transferred)
 				}
 			}(conn)
 		}

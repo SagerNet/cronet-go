@@ -2,11 +2,9 @@ package cronet
 
 import (
 	"context"
-	"errors"
 	"io"
 	"net"
 	"os"
-	"strconv"
 	"sync"
 	"time"
 )
@@ -415,7 +413,7 @@ func (c *bidirectionalHandler) OnSucceeded(stream BidirectionalStream) {
 func (c *bidirectionalHandler) OnFailed(stream BidirectionalStream, netError int) {
 	c.signalReadDone()
 	c.signalWriteDone()
-	c.Close(stream, errors.New("network error "+strconv.Itoa(netError)))
+	c.Close(stream, NetError(netError))
 }
 
 func (c *bidirectionalHandler) OnCanceled(stream BidirectionalStream) {

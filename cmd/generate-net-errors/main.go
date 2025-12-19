@@ -1,0 +1,232 @@
+// Command generate-net-errors parses Chromium's net_error_list.h and generates
+// Go error constants and lookup tables.
+package main
+
+import (
+	"bufio"
+	"bytes"
+	"fmt"
+	"go/format"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+	"unicode"
+)
+
+type netError struct {
+	name        string // e.g., "CONNECTION_REFUSED"
+	code        int    // e.g., -102
+	description string // full description from comments
+	message     string // Go-style short message
+}
+
+func main() {
+	// Find the source file relative to this script's location
+	sourceFile := filepath.Join("naiveproxy", "src", "net", "base", "net_error_list.h")
+	outputFile := "net_error_generated.go"
+
+	errors, err := parseNetErrorList(sourceFile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to parse %s: %v\n", sourceFile, err)
+		os.Exit(1)
+	}
+
+	if err := generateGoFile(errors, outputFile); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to generate %s: %v\n", outputFile, err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Generated %s with %d error codes\n", outputFile, len(errors))
+}
+
+var netErrorRegex = regexp.MustCompile(`NET_ERROR\(\s*(\w+)\s*,\s*(-?\d+)\s*\)`)
+
+func parseNetErrorList(filename string) ([]netError, error) {
+	file, err := os.Open(filename)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	var errors []netError
+	var commentLines []string
+	scanner := bufio.NewScanner(file)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		trimmed := strings.TrimSpace(line)
+
+		// Collect comment lines
+		if strings.HasPrefix(trimmed, "//") {
+			comment := strings.TrimPrefix(trimmed, "//")
+			comment = strings.TrimSpace(comment)
+			// Skip header guards and file-level comments
+			if !strings.Contains(comment, "no-include-guard") &&
+				!strings.Contains(comment, "NOLINT") &&
+				comment != "" {
+				commentLines = append(commentLines, comment)
+			}
+			continue
+		}
+
+		// Check for NET_ERROR macro
+		if matches := netErrorRegex.FindStringSubmatch(line); matches != nil {
+			name := matches[1]
+			code, _ := strconv.Atoi(matches[2])
+
+			// Skip special markers like CERT_END
+			if strings.HasSuffix(name, "_END") {
+				commentLines = nil
+				continue
+			}
+
+			description := buildDescription(commentLines)
+			message := descriptionToMessage(name, description)
+
+			errors = append(errors, netError{
+				name:        name,
+				code:        code,
+				description: description,
+				message:     message,
+			})
+			commentLines = nil
+			continue
+		}
+
+		// Empty line or other content resets comments (unless we're in a multi-line comment block)
+		if trimmed == "" || (!strings.HasPrefix(trimmed, "//") && !strings.HasPrefix(trimmed, "NET_ERROR")) {
+			// Keep comments if next non-empty line might be NET_ERROR
+			// Reset if it's clearly unrelated content
+			if trimmed != "" && !strings.HasPrefix(trimmed, "#") {
+				commentLines = nil
+			}
+		}
+	}
+
+	return errors, scanner.Err()
+}
+
+func buildDescription(comments []string) string {
+	if len(comments) == 0 {
+		return ""
+	}
+
+	// Filter out range headers like "Ranges:", "100-199 Connection related errors"
+	var filtered []string
+	for _, c := range comments {
+		// Skip range description lines
+		if strings.HasPrefix(c, "Ranges:") ||
+			regexp.MustCompile(`^\d+-\d+\s+`).MatchString(c) ||
+			strings.HasPrefix(c, "0-") {
+			continue
+		}
+		// Skip "Error -XXX was removed" lines
+		if strings.Contains(c, "was removed") {
+			continue
+		}
+		// Skip code references like "*** Code -600 is reserved ***"
+		if strings.Contains(c, "is reserved") {
+			continue
+		}
+		filtered = append(filtered, c)
+	}
+
+	return strings.Join(filtered, " ")
+}
+
+func descriptionToMessage(name, description string) string {
+	// Use the error name directly in Go style: CONNECTION_REFUSED -> "connection refused"
+	return nameToMessage(name)
+}
+
+func nameToMessage(name string) string {
+	// Convert CONNECTION_REFUSED -> "connection refused"
+	words := strings.Split(strings.ToLower(name), "_")
+	// Remove "err" prefix if present
+	if len(words) > 0 && words[0] == "err" {
+		words = words[1:]
+	}
+	return strings.Join(words, " ")
+}
+
+func toGoName(name string) string {
+	// Convert CONNECTION_REFUSED -> ConnectionRefused
+	parts := strings.Split(strings.ToLower(name), "_")
+	var result strings.Builder
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+		// Handle common acronyms
+		switch strings.ToUpper(part) {
+		case "IO", "IP", "SSL", "TLS", "HTTP", "DNS", "URL", "TCP", "UDP", "QUIC", "CT", "PAC", "PKCS", "RST", "FIN", "ACK", "SOCKS", "MAC", "DH", "ECH", "CSP", "ORB":
+			result.WriteString(strings.ToUpper(part))
+		case "HTTP2":
+			result.WriteString("HTTP2")
+		default:
+			// Capitalize first letter
+			runes := []rune(part)
+			runes[0] = unicode.ToUpper(runes[0])
+			result.WriteString(string(runes))
+		}
+	}
+	return result.String()
+}
+
+func generateGoFile(errors []netError, filename string) error {
+	var buf bytes.Buffer
+
+	buf.WriteString(`// Code generated by cmd/generate-net-errors. DO NOT EDIT.
+// Source: naiveproxy/src/net/base/net_error_list.h
+
+package cronet
+
+// NetError constants from Chromium's net_error_list.h
+const (
+`)
+
+	for _, e := range errors {
+		goName := "NetError" + toGoName(e.name)
+		buf.WriteString(fmt.Sprintf("\t%s NetError = %d\n", goName, e.code))
+	}
+
+	buf.WriteString(`)
+
+type netErrorEntry struct {
+	name        string
+	message     string
+	description string
+}
+
+var netErrorInfo = map[NetError]netErrorEntry{
+`)
+
+	for _, e := range errors {
+		goName := "NetError" + toGoName(e.name)
+		// Escape strings for Go
+		name := fmt.Sprintf("ERR_%s", e.name)
+		message := escapeString(e.message)
+		description := escapeString(e.description)
+		buf.WriteString(fmt.Sprintf("\t%s: {%q, %q, %q},\n", goName, name, message, description))
+	}
+
+	buf.WriteString(`}
+`)
+
+	// Format the generated code
+	formatted, err := format.Source(buf.Bytes())
+	if err != nil {
+		// Write unformatted for debugging
+		os.WriteFile(filename+".unformatted", buf.Bytes(), 0644)
+		return fmt.Errorf("failed to format generated code: %w", err)
+	}
+
+	return os.WriteFile(filename, formatted, 0644)
+}
+
+func escapeString(s string) string {
+	// Basic escaping - strconv.Quote will handle most cases
+	return s
+}
