@@ -46,9 +46,8 @@ type NaiveClient struct {
 	serverURL                         string
 	authorization                     string
 	extraHeaders                      map[string]string
-	trustedRootCertificates           string
-	trustedCertificatePublicKeySHA256 [][]byte
-	dnsResolver                       DNSResolverFunc
+	trustedRootCertificates string
+	dnsResolver             DNSResolverFunc
 	echEnabled                        bool
 	echConfigList                     []byte
 	echQueryServerName                string
@@ -73,11 +72,10 @@ type NaiveClientConfig struct {
 	ServerName                        string
 	Username                          string
 	Password                          string
-	InsecureConcurrency               int
-	ExtraHeaders                      map[string]string
-	TrustedRootCertificates           string   // PEM format
-	TrustedCertificatePublicKeySHA256 [][]byte // SPKI SHA256 hashes
-	DNSResolver                       DNSResolverFunc
+	InsecureConcurrency     int
+	ExtraHeaders            map[string]string
+	TrustedRootCertificates string // PEM format
+	DNSResolver             DNSResolverFunc
 	Dialer                            N.Dialer
 
 	// ECHEnabled enables Encrypted Client Hello support.
@@ -164,10 +162,9 @@ func NewNaiveClient(config NaiveClientConfig) (*NaiveClient, error) {
 		serverName:                        serverName,
 		serverURL:                         serverURL.String(),
 		authorization:                     authorization,
-		extraHeaders:                      config.ExtraHeaders,
-		trustedRootCertificates:           config.TrustedRootCertificates,
-		trustedCertificatePublicKeySHA256: config.TrustedCertificatePublicKeySHA256,
-		dnsResolver:                       config.DNSResolver,
+		extraHeaders:            config.ExtraHeaders,
+		trustedRootCertificates: config.TrustedRootCertificates,
+		dnsResolver:             config.DNSResolver,
 		echEnabled:                        config.ECHEnabled,
 		echConfigList:                     config.ECHConfigList,
 		echQueryServerName:                config.ECHQueryServerName,
@@ -181,11 +178,7 @@ func NewNaiveClient(config NaiveClientConfig) (*NaiveClient, error) {
 func (c *NaiveClient) Start() error {
 	engine := NewEngine()
 
-	if len(c.trustedCertificatePublicKeySHA256) > 0 {
-		if !engine.SetCertVerifierWithPublicKeySHA256(c.trustedCertificatePublicKeySHA256) {
-			return E.New("failed to set certificate public key SHA256 verifier")
-		}
-	} else if c.trustedRootCertificates != "" {
+	if c.trustedRootCertificates != "" {
 		if !engine.SetTrustedRootCertificates(c.trustedRootCertificates) {
 			return E.New("failed to set trusted CA certificates")
 		}

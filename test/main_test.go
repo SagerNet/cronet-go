@@ -8,7 +8,6 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha1"
-	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
@@ -81,7 +80,7 @@ func (e *testEnv) newNaiveClient(t *testing.T, config cronet.NaiveClientConfig) 
 	if config.Password == "" {
 		config.Password = "test"
 	}
-	if config.TrustedRootCertificates == "" && len(config.TrustedCertificatePublicKeySHA256) == 0 {
+	if config.TrustedRootCertificates == "" {
 		config.TrustedRootCertificates = string(e.caPEM)
 	}
 	if config.DNSResolver == nil {
@@ -203,41 +202,6 @@ func TestNaiveParallel(t *testing.T) {
 	output, err := cmd.CombinedOutput()
 	t.Log(string(output))
 	require.NoError(t, err)
-}
-
-// TestNaivePublicKeySHA256 tests certificate public key SHA256 verification
-func TestNaivePublicKeySHA256(t *testing.T) {
-	env := setupTestEnv(t)
-
-	// Calculate SPKI SHA256
-	certPemContent, err := os.ReadFile(env.certPath)
-	require.NoError(t, err)
-	block, _ := pem.Decode(certPemContent)
-	require.NotNil(t, block)
-	certificate, err := x509.ParseCertificate(block.Bytes)
-	require.NoError(t, err)
-	spkiBytes, err := x509.MarshalPKIXPublicKey(certificate.PublicKey)
-	require.NoError(t, err)
-	pinHash := sha256.Sum256(spkiBytes)
-
-	client := env.newNaiveClient(t, cronet.NaiveClientConfig{
-		TrustedCertificatePublicKeySHA256: [][]byte{pinHash[:]},
-		DNSResolver:                       localhostDNSResolver(t),
-	})
-	startEchoServer(t, 15001)
-
-	conn, err := client.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", 15001))
-	require.NoError(t, err)
-	defer conn.Close()
-
-	testData := []byte("PublicKeySHA256 test!")
-	_, err = conn.Write(testData)
-	require.NoError(t, err)
-
-	buf := make([]byte, len(testData))
-	_, err = io.ReadFull(conn, buf)
-	require.NoError(t, err)
-	require.Equal(t, testData, buf)
 }
 
 // TestNaiveCloseWhileReading tests that Close() works correctly when

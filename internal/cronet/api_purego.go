@@ -219,28 +219,6 @@ func CreateCertVerifierWithRootCerts(pemRootCerts string) uintptr {
 	return cronetCreateCertVerifierWithRootCerts(pemRootCerts)
 }
 
-func CreateCertVerifierWithPublicKeySHA256(hashes [][]byte) uintptr {
-	ensureLoaded()
-	if len(hashes) == 0 {
-		return 0
-	}
-	// Create array of pointers to hash data
-	hashPtrs := make([]uintptr, len(hashes))
-	for i, hash := range hashes {
-		if len(hash) == 0 {
-			continue
-		}
-		hashPtrs[i] = uintptr(unsafe.Pointer(&hash[0]))
-	}
-	result := cronetCreateCertVerifierWithPublicKeySHA256(
-		uintptr(unsafe.Pointer(&hashPtrs[0])),
-		uintptr(len(hashes)),
-	)
-	runtime.KeepAlive(hashPtrs)
-	runtime.KeepAlive(hashes)
-	return result
-}
-
 // Buffer API
 
 func BufferCreate() uintptr {

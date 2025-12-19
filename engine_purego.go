@@ -189,29 +189,6 @@ func (e Engine) SetTrustedRootCertificates(pemRootCerts string) bool {
 	return true
 }
 
-// SetCertVerifierWithPublicKeySHA256 sets a certificate verifier that validates
-// certificates by matching the public key SHA256 hash, bypassing CA chain validation.
-// This is similar to sing-box's certificate_public_key_sha256 behavior.
-// Must be called before StartWithParams().
-// hashes should be raw 32-byte SHA256 hashes of the certificate's SPKI.
-// Returns true if the verifier was successfully set, false if no hashes provided.
-func (e Engine) SetCertVerifierWithPublicKeySHA256(hashes [][]byte) bool {
-	if len(hashes) == 0 {
-		return false
-	}
-	for _, hash := range hashes {
-		if len(hash) != 32 {
-			return false
-		}
-	}
-	certVerifier := cronet.CreateCertVerifierWithPublicKeySHA256(hashes)
-	if certVerifier == 0 {
-		return false
-	}
-	cronet.EngineSetMockCertVerifierForTesting(e.ptr, certVerifier)
-	return true
-}
-
 // SetDialer sets a custom dialer for TCP connections.
 // When set, the engine will use this callback to establish TCP connections
 // instead of the default system socket API.
