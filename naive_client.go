@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -57,6 +58,7 @@ type NaiveClient struct {
 	quicCongestionControl             QUICCongestionControl
 	concurrency                       int
 	counter                           atomic.Uint64
+	started                           chan struct{}
 	engine                            Engine
 	streamEngine                      StreamEngine
 	activeConnections                 sync.WaitGroup
@@ -172,6 +174,7 @@ func NewNaiveClient(config NaiveClientConfig) (*NaiveClient, error) {
 		quicEnabled:                       config.QUIC,
 		quicCongestionControl:             config.QUICCongestionControl,
 		concurrency:                       concurrency,
+		started:                           make(chan struct{}),
 	}, nil
 }
 
@@ -360,6 +363,7 @@ func (c *NaiveClient) Start() error {
 
 	c.engine = engine
 	c.streamEngine = engine.StreamEngine()
+	close(c.started)
 
 	return nil
 }
@@ -369,6 +373,17 @@ func (c *NaiveClient) Engine() Engine {
 }
 
 func (c *NaiveClient) DialEarly(destination M.Socksaddr) (NaiveConn, error) {
+	select {
+	case <-c.started:
+	default:
+		println("cronet: race detected")
+		debug.PrintStack()
+		select {
+		case <-c.started:
+		case <-c.ctx.Done():
+			return nil, c.ctx.Err()
+		}
+	}
 	headers := map[string]string{
 		"-connect-authority": destination.String(),
 		"Padding":            generatePaddingHeader(),
@@ -424,6 +439,11 @@ func (c *NaiveClient) ListenPacket(ctx context.Context, destination M.Socksaddr)
 }
 
 func (c *NaiveClient) Close() error {
+	select {
+	case <-c.started:
+	default:
+		return nil
+	}
 	if c.proxyCancel != nil {
 		c.proxyCancel()
 	}
