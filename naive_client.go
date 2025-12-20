@@ -7,7 +7,6 @@ import (
 	"net"
 	"net/url"
 	"os"
-	"runtime/debug"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -39,7 +38,19 @@ const (
 	QUICCongestionControlReno QUICCongestionControl = "RENO"
 )
 
+// clientState represents the lifecycle state of a NaiveClient.
+type clientState uint32
+
+const (
+	clientStateCreated  clientState = iota // Initial state after NewNaiveClient
+	clientStateStarting                    // Start() in progress
+	clientStateRunning                     // Ready for Dial calls
+	clientStateClosing                     // Close() in progress
+	clientStateClosed                      // Terminal state
+)
+
 type NaiveClient struct {
+	state                             atomic.Uint32
 	ctx                               context.Context
 	dialer                            N.Dialer
 	serverAddress                     M.Socksaddr
@@ -179,11 +190,41 @@ func NewNaiveClient(config NaiveClientConfig) (*NaiveClient, error) {
 }
 
 func (c *NaiveClient) Start() error {
+	// Atomic transition: Created -> Starting
+	if !c.state.CompareAndSwap(uint32(clientStateCreated), uint32(clientStateStarting)) {
+		state := clientState(c.state.Load())
+		switch state {
+		case clientStateStarting:
+			return errors.New("start already in progress")
+		case clientStateRunning:
+			return errors.New("already started")
+		default:
+			return net.ErrClosed
+		}
+	}
+
 	engine := NewEngine()
+	var startError error
+
+	// Cleanup on failure
+	defer func() {
+		if startError != nil {
+			if c.proxyCancel != nil {
+				c.proxyCancel()
+			}
+			if engine.ptr != 0 {
+				engine.Shutdown()
+				engine.Destroy()
+			}
+			c.state.Store(uint32(clientStateClosed))
+			close(c.started)
+		}
+	}()
 
 	if c.trustedRootCertificates != "" {
 		if !engine.SetTrustedRootCertificates(c.trustedRootCertificates) {
-			return E.New("failed to set trusted CA certificates")
+			startError = E.New("failed to set trusted CA certificates")
+			return startError
 		}
 	}
 
@@ -332,29 +373,29 @@ func (c *NaiveClient) Start() error {
 		params.SetEnableHTTP2(true)
 	}
 
-	err := params.SetAsyncDNS(true)
-	if err != nil {
-		return err
+	startError = params.SetAsyncDNS(true)
+	if startError != nil {
+		return startError
 	}
-	err = params.SetDNSServerOverride([]string{dnsServerAddress.String()})
-	if err != nil {
-		return err
+	startError = params.SetDNSServerOverride([]string{dnsServerAddress.String()})
+	if startError != nil {
+		return startError
 	}
 
 	if c.echEnabled {
 		// Enable HTTPS/SVCB DNS record lookups for ECH support
-		err := params.SetUseDnsHttpsSvcb(true)
-		if err != nil {
-			return err
+		startError = params.SetUseDnsHttpsSvcb(true)
+		if startError != nil {
+			return startError
 		}
 	}
 
 	if c.quicCongestionControl != "" {
-		err := params.SetExperimentalOption("QUIC", map[string]any{
+		startError = params.SetExperimentalOption("QUIC", map[string]any{
 			"connection_options": string(c.quicCongestionControl),
 		})
-		if err != nil {
-			return err
+		if startError != nil {
+			return startError
 		}
 	}
 
@@ -363,23 +404,37 @@ func (c *NaiveClient) Start() error {
 
 	c.engine = engine
 	c.streamEngine = engine.StreamEngine()
+
+	// Success: Starting -> Running
+	c.state.Store(uint32(clientStateRunning))
 	close(c.started)
 
 	return nil
 }
 
 func (c *NaiveClient) Engine() Engine {
+	if clientState(c.state.Load()) != clientStateRunning {
+		return Engine{}
+	}
 	return c.engine
 }
 
 func (c *NaiveClient) DialEarly(destination M.Socksaddr) (NaiveConn, error) {
-	select {
-	case <-c.started:
+	// Fast path: check state
+	state := clientState(c.state.Load())
+	switch state {
+	case clientStateRunning:
+		// proceed
+	case clientStateClosed, clientStateClosing:
+		return nil, net.ErrClosed
 	default:
-		println("cronet: race detected")
-		debug.PrintStack()
+		// Wait for Start() to complete
 		select {
 		case <-c.started:
+			// Recheck state after waking
+			if clientState(c.state.Load()) != clientStateRunning {
+				return nil, net.ErrClosed
+			}
 		case <-c.ctx.Done():
 			return nil, c.ctx.Err()
 		}
@@ -439,11 +494,44 @@ func (c *NaiveClient) ListenPacket(ctx context.Context, destination M.Socksaddr)
 }
 
 func (c *NaiveClient) Close() error {
-	select {
-	case <-c.started:
-	default:
-		return nil
+	for {
+		state := clientState(c.state.Load())
+		switch state {
+		case clientStateCreated:
+			// Not started - transition directly to Closed
+			if c.state.CompareAndSwap(uint32(clientStateCreated), uint32(clientStateClosed)) {
+				close(c.started) // Unblock any waiting Dial
+				return nil
+			}
+			// CAS failed, retry
+
+		case clientStateStarting:
+			// Wait for Start() to finish, then close
+			select {
+			case <-c.started:
+				continue // Retry with new state
+			case <-c.ctx.Done():
+				return c.ctx.Err()
+			}
+
+		case clientStateRunning:
+			// Normal close path
+			if !c.state.CompareAndSwap(uint32(clientStateRunning), uint32(clientStateClosing)) {
+				continue // Retry
+			}
+			return c.doClose()
+
+		case clientStateClosing:
+			// Another goroutine is closing - return immediately
+			return nil
+
+		case clientStateClosed:
+			return net.ErrClosed
+		}
 	}
+}
+
+func (c *NaiveClient) doClose() error {
 	if c.proxyCancel != nil {
 		c.proxyCancel()
 	}
@@ -461,6 +549,8 @@ func (c *NaiveClient) Close() error {
 	c.activeConnections.Wait()
 	c.engine.Shutdown()
 	c.engine.Destroy()
+
+	c.state.Store(uint32(clientStateClosed))
 	return nil
 }
 
