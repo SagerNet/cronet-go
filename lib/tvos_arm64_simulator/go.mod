@@ -1,3 +1,5 @@
 module github.com/sagernet/cronet-go/lib/tvos_arm64_simulator
 
 go 1.20
+
+require github.com/sagernet/cronet-go v0.0.0-20251221162138-7a1b0c41cbdc
