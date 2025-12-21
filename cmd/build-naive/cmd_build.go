@@ -191,6 +191,7 @@ func buildTarget(t Target) {
 		"is_official_build=true",
 		"is_debug=false",
 		"is_clang=true",
+		"use_clang_modules=false",
 		"use_thin_lto=false", // Disable ThinLTO so static lib can be linked with system clang
 		"fatal_linker_warnings=false",
 		"treat_warnings_as_errors=false",
@@ -249,7 +250,7 @@ func buildTarget(t Target) {
 	case "android":
 		args = append(args,
 			"use_sysroot=false",
-			"default_min_sdk_version=21",
+			"default_min_sdk_version=23",
 			"is_high_end_android=true",
 			"android_ndk_major_version=28",
 		)
