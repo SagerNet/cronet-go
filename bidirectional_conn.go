@@ -9,41 +9,11 @@ import (
 	"time"
 )
 
-// safeStream wraps a BidirectionalStream with lifecycle protection.
-// It ensures Cancel and Destroy don't race, preventing use-after-free.
-type safeStream struct {
-	stream    BidirectionalStream
-	mutex     sync.Mutex
-	destroyed bool
-}
-
-// Cancel cancels the stream if it hasn't been destroyed.
-// Safe to call concurrently with Destroy.
-func (s *safeStream) Cancel() {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-	if !s.destroyed {
-		s.stream.Cancel()
-	}
-}
-
-// Destroy marks the stream as destroyed and destroys it.
-// Safe to call concurrently with Cancel. Returns false if already destroyed.
-func (s *safeStream) Destroy() bool {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-	if s.destroyed {
-		return false
-	}
-	s.destroyed = true
-	s.stream.Destroy()
-	return true
-}
-
 // BidirectionalConn is a wrapper from BidirectionalStream to net.Conn
 type BidirectionalConn struct {
-	stream           *safeStream
-	rawStream        BidirectionalStream // for non-lifecycle operations
+	stream      BidirectionalStream
+	cancelOnce  sync.Once // Ensures Cancel is called at most once
+	destroyOnce sync.Once // Ensures Destroy is called at most once
 	readWaitHeaders  bool
 	writeWaitHeaders bool
 	access           sync.Mutex
@@ -94,8 +64,7 @@ func (e StreamEngine) CreateConn(readWaitHeaders bool, writeWaitHeaders bool) *B
 	}
 	conn.readSemaphore <- struct{}{}
 	conn.writeSemaphore <- struct{}{}
-	conn.rawStream = e.CreateStream(&bidirectionalHandler{BidirectionalConn: conn})
-	conn.stream = &safeStream{stream: conn.rawStream}
+	conn.stream = e.CreateStream(&bidirectionalHandler{BidirectionalConn: conn})
 	return conn
 }
 
@@ -109,7 +78,7 @@ func (c *BidirectionalConn) Start(method string, url string, headers map[string]
 		return net.ErrClosed
 	default:
 	}
-	if !c.rawStream.Start(method, url, headers, priority, endOfStream) {
+	if !c.stream.Start(method, url, headers, priority, endOfStream) {
 		return os.ErrInvalid
 	}
 	return nil
@@ -169,7 +138,7 @@ func (c *BidirectionalConn) Read(p []byte) (n int, err error) {
 		c.readBuffer = make([]byte, len(p))
 	}
 	readBuffer := c.readBuffer[:len(p)]
-	c.rawStream.Read(readBuffer)
+	c.stream.Read(readBuffer)
 	c.access.Unlock()
 
 	select {
@@ -248,7 +217,7 @@ func (c *BidirectionalConn) Write(p []byte) (n int, err error) {
 	}
 	writeBuffer := c.writeBuffer[:len(p)]
 	copy(writeBuffer, p)
-	c.rawStream.Write(writeBuffer, false)
+	c.stream.Write(writeBuffer, false)
 	c.access.Unlock()
 
 	select {
@@ -286,14 +255,16 @@ func (c *BidirectionalConn) Close() error {
 		return net.ErrClosed
 	case <-c.done:
 		c.access.Unlock()
-		return net.ErrClosed
+		return nil // Stream already terminated normally
 	default:
 	}
 
 	close(c.close)
 	c.access.Unlock()
 
-	c.stream.Cancel()
+	c.cancelOnce.Do(func() {
+		c.stream.Cancel()
+	})
 	return nil
 }
 
@@ -397,6 +368,7 @@ func (c *bidirectionalHandler) OnReadCompleted(stream BidirectionalStream, bytes
 		c.access.Unlock()
 		c.signalReadDone()
 		c.signalWriteDone()
+		c.cancelOnce.Do(func() {})
 		c.Close(io.EOF)
 		return
 	}
@@ -438,18 +410,21 @@ func (c *bidirectionalHandler) OnResponseTrailersReceived(stream BidirectionalSt
 func (c *bidirectionalHandler) OnSucceeded(stream BidirectionalStream) {
 	c.signalReadDone()
 	c.signalWriteDone()
+	c.cancelOnce.Do(func() {})
 	c.Close(io.EOF)
 }
 
 func (c *bidirectionalHandler) OnFailed(stream BidirectionalStream, netError int) {
 	c.signalReadDone()
 	c.signalWriteDone()
+	c.cancelOnce.Do(func() {})
 	c.Close(NetError(netError))
 }
 
 func (c *bidirectionalHandler) OnCanceled(stream BidirectionalStream) {
 	c.signalReadDone()
 	c.signalWriteDone()
+	c.cancelOnce.Do(func() {})
 	c.Close(context.Canceled)
 }
 
@@ -460,6 +435,8 @@ func (c *bidirectionalHandler) Close(err error) {
 		close(c.done)
 		c.access.Unlock()
 
-		c.stream.Destroy()
+		c.destroyOnce.Do(func() {
+			c.stream.Destroy()
+		})
 	})
 }
