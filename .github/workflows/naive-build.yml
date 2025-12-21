@@ -269,13 +269,13 @@ jobs:
       matrix:
         include:
           - arch: arm64
-            cc: aarch64-linux-android21-clang
+            cc: aarch64-linux-android23-clang
           - arch: amd64
-            cc: x86_64-linux-android21-clang
+            cc: x86_64-linux-android23-clang
           - arch: arm
-            cc: armv7a-linux-androideabi21-clang
+            cc: armv7a-linux-androideabi23-clang
           - arch: "386"
-            cc: i686-linux-android21-clang
+            cc: i686-linux-android23-clang
     steps:
       - uses: actions/checkout@v4
         with:
