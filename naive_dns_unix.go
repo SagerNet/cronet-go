@@ -46,7 +46,7 @@ func createUDPLoopbackPair() (cronetFD int, proxyConn net.PacketConn, err error)
 	if err != nil {
 		return -1, nil, err
 	}
-	proxyLocalAddr := proxyUDPConn.LocalAddr().(*net.UDPAddr)
+	proxyLocalAddress := proxyUDPConn.LocalAddr().(*net.UDPAddr)
 
 	// Step 2: Create cronetConn socket connected to proxyConn
 	cronetAddress, err := net.ResolveUDPAddr("udp", "127.0.0.1:0")
@@ -54,12 +54,12 @@ func createUDPLoopbackPair() (cronetFD int, proxyConn net.PacketConn, err error)
 		proxyUDPConn.Close()
 		return -1, nil, err
 	}
-	cronetConn, err := net.DialUDP("udp", cronetAddress, proxyLocalAddr)
+	cronetConn, err := net.DialUDP("udp", cronetAddress, proxyLocalAddress)
 	if err != nil {
 		proxyUDPConn.Close()
 		return -1, nil, err
 	}
-	cronetLocalAddr := cronetConn.LocalAddr().(*net.UDPAddr)
+	cronetLocalAddress := cronetConn.LocalAddr().(*net.UDPAddr)
 
 	// Step 3: Connect proxyConn to cronetConn's address using syscall
 	proxyRawConn, err := proxyUDPConn.SyscallConn()
@@ -69,21 +69,21 @@ func createUDPLoopbackPair() (cronetFD int, proxyConn net.PacketConn, err error)
 		return -1, nil, err
 	}
 
-	var connectErr error
+	var connectError error
 	err = proxyRawConn.Control(func(fd uintptr) {
-		sockaddr := &syscall.SockaddrInet4{Port: cronetLocalAddr.Port}
-		copy(sockaddr.Addr[:], cronetLocalAddr.IP.To4())
-		connectErr = syscall.Connect(int(fd), sockaddr)
+		sockaddr := &syscall.SockaddrInet4{Port: cronetLocalAddress.Port}
+		copy(sockaddr.Addr[:], cronetLocalAddress.IP.To4())
+		connectError = syscall.Connect(int(fd), sockaddr)
 	})
 	if err != nil {
 		cronetConn.Close()
 		proxyUDPConn.Close()
 		return -1, nil, err
 	}
-	if connectErr != nil {
+	if connectError != nil {
 		cronetConn.Close()
 		proxyUDPConn.Close()
-		return -1, nil, connectErr
+		return -1, nil, connectError
 	}
 
 	// Step 4: Duplicate cronetConn's fd for Chromium
@@ -95,11 +95,11 @@ func createUDPLoopbackPair() (cronetFD int, proxyConn net.PacketConn, err error)
 	}
 
 	var cronetFDValue int
-	var dupErr error
+	var duplicateError error
 	err = cronetRawConn.Control(func(fd uintptr) {
 		dupFD, controlErr := syscall.Dup(int(fd))
 		if controlErr != nil {
-			dupErr = controlErr
+			duplicateError = controlErr
 			return
 		}
 		syscall.CloseOnExec(dupFD)
@@ -110,14 +110,13 @@ func createUDPLoopbackPair() (cronetFD int, proxyConn net.PacketConn, err error)
 		proxyUDPConn.Close()
 		return -1, nil, err
 	}
-	if dupErr != nil {
+	if duplicateError != nil {
 		cronetConn.Close()
 		proxyUDPConn.Close()
-		return -1, nil, dupErr
+		return -1, nil, duplicateError
 	}
 
 	cronetConn.Close()
 
 	return cronetFDValue, proxyUDPConn, nil
 }
-

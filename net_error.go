@@ -1,13 +1,15 @@
 package cronet
 
 import (
+	"context"
+	"errors"
 	"net"
 	"os"
 	"strconv"
 	"syscall"
 )
 
-//go:generate go run ./cmd/generate-net-errors
+//go:generate go run ./cmd/build-naive generate-net-errors
 
 // NetError represents a Chromium network error code.
 // Error codes are negative integers defined in Chromium's net/base/net_error_list.h.
@@ -91,4 +93,42 @@ func (e NetError) Timeout() bool {
 // This implements the net.Error interface.
 func (e NetError) Temporary() bool {
 	return false
+}
+
+func toNetError(err error) NetError {
+	if err == nil {
+		return 0
+	}
+
+	if errors.Is(err, context.Canceled) {
+		return NetErrorAborted
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return NetErrorConnectionTimedOut
+	}
+
+	var networkError net.Error
+	if errors.As(err, &networkError) && networkError.Timeout() {
+		return NetErrorConnectionTimedOut
+	}
+
+	var syscallError *os.SyscallError
+	if errors.As(err, &syscallError) {
+		if errno, ok := syscallError.Err.(syscall.Errno); ok {
+			switch errno {
+			case syscall.ECONNREFUSED:
+				return NetErrorConnectionRefused
+			case syscall.ETIMEDOUT:
+				return NetErrorConnectionTimedOut
+			case syscall.ENETUNREACH, syscall.EHOSTUNREACH:
+				return NetErrorAddressUnreachable
+			case syscall.ECONNRESET:
+				return NetErrorConnectionReset
+			case syscall.ECONNABORTED:
+				return NetErrorConnectionAborted
+			}
+		}
+	}
+
+	return NetErrorConnectionFailed
 }

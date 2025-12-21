@@ -119,7 +119,7 @@ func TestNaiveCustomDialer(t *testing.T) {
 		wrapConn:   false,
 	}
 
-	client := env.newNaiveClient(t, cronet.NaiveClientConfig{
+	client := env.newNaiveClient(t, cronet.NaiveClientOptions{
 		Dialer:      dialer,
 		DNSResolver: localhostDNSResolver(t),
 	})
@@ -154,7 +154,7 @@ func TestNaivePipeProxy(t *testing.T) {
 		wrapConn:   true, // Force wrapped connections to trigger fallback path
 	}
 
-	client := env.newNaiveClient(t, cronet.NaiveClientConfig{
+	client := env.newNaiveClient(t, cronet.NaiveClientOptions{
 		Dialer:      dialer,
 		DNSResolver: localhostDNSResolver(t),
 	})
@@ -202,7 +202,7 @@ func TestNaiveDialError(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			client := env.newNaiveClient(t, cronet.NaiveClientConfig{
+			client := env.newNaiveClient(t, cronet.NaiveClientOptions{
 				Dialer: &errorDialer{err: tc.err},
 			})
 
@@ -221,7 +221,7 @@ func TestNaiveLargeTransfer(t *testing.T) {
 	env := setupTestEnv(t)
 	startEchoServer(t, 17003)
 
-	client := env.newNaiveClient(t, cronet.NaiveClientConfig{
+	client := env.newNaiveClient(t, cronet.NaiveClientOptions{
 		DNSResolver: localhostDNSResolver(t),
 	})
 
@@ -259,7 +259,7 @@ func TestNaiveRapidOpenClose(t *testing.T) {
 	env := setupTestEnv(t)
 	startEchoServer(t, 17004)
 
-	client := env.newNaiveClient(t, cronet.NaiveClientConfig{
+	client := env.newNaiveClient(t, cronet.NaiveClientOptions{
 		DNSResolver: localhostDNSResolver(t),
 	})
 
@@ -299,7 +299,7 @@ func TestNaiveGracefulShutdown(t *testing.T) {
 		wrapConn:   true,
 	}
 
-	config := cronet.NaiveClientConfig{
+	config := cronet.NaiveClientOptions{
 		ServerAddress: M.ParseSocksaddrHostPort("127.0.0.1", naiveServerPort),
 		ServerName:    "example.org",
 		Username:      "test",
@@ -378,7 +378,7 @@ func TestNaivePipeProxyMultipleConnections(t *testing.T) {
 		wrapConn:   true,
 	}
 
-	client := env.newNaiveClient(t, cronet.NaiveClientConfig{
+	client := env.newNaiveClient(t, cronet.NaiveClientOptions{
 		Dialer:      dialer,
 		DNSResolver: localhostDNSResolver(t),
 	})
@@ -480,7 +480,7 @@ func TestDNSTCFallbackToTCP(t *testing.T) {
 		return response
 	}
 
-	client := env.newNaiveClient(t, cronet.NaiveClientConfig{
+	client := env.newNaiveClient(t, cronet.NaiveClientOptions{
 		DNSResolver: largeDNSResolver,
 	})
 
@@ -535,7 +535,7 @@ func TestDNSInterceptionUDPLoopbackFallback(t *testing.T) {
 		return response
 	}
 
-	client := env.newNaiveClient(t, cronet.NaiveClientConfig{
+	client := env.newNaiveClient(t, cronet.NaiveClientOptions{
 		DNSResolver:          countingResolver,
 		TestForceUDPLoopback: true, // Force UDP loopback path
 	})
@@ -592,7 +592,7 @@ func TestDNSInterceptionDefaultPath(t *testing.T) {
 		return response
 	}
 
-	client := env.newNaiveClient(t, cronet.NaiveClientConfig{
+	client := env.newNaiveClient(t, cronet.NaiveClientOptions{
 		DNSResolver:          countingResolver,
 		TestForceUDPLoopback: false, // Use default path (Unix SOCK_DGRAM or Windows framed)
 	})
@@ -623,7 +623,7 @@ func TestDNSInterceptionDefaultPath(t *testing.T) {
 // PartitionConnectionsByNetworkIsolationKey feature)
 func TestNaiveInsecureConcurrencySessionCount(t *testing.T) {
 	env := setupTestEnv(t)
-	client := env.newNaiveClient(t, cronet.NaiveClientConfig{
+	client := env.newNaiveClient(t, cronet.NaiveClientOptions{
 		InsecureConcurrency: 3,
 		DNSResolver:         localhostDNSResolver(t),
 	})

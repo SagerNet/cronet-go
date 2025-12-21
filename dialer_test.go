@@ -6,7 +6,6 @@ import (
 )
 
 func TestDialerMapCleanup(t *testing.T) {
-	// Verify Engine.Destroy() properly cleans up dialerMap
 	engine := NewEngine()
 
 	engine.SetDialer(func(address string, port uint16) int {
@@ -62,7 +61,6 @@ func TestSetDialerNil(t *testing.T) {
 	engine := NewEngine()
 	defer engine.Destroy()
 
-	// First set a dialer
 	engine.SetDialer(func(address string, port uint16) int {
 		return -104
 	})
@@ -75,7 +73,6 @@ func TestSetDialerNil(t *testing.T) {
 		t.Error("dialer not registered")
 	}
 
-	// Then set it to nil
 	engine.SetDialer(nil)
 
 	dialerAccess.RLock()
@@ -121,19 +118,16 @@ func TestSetDialerOverwrite(t *testing.T) {
 	callCount1 := 0
 	callCount2 := 0
 
-	// Set first dialer
 	engine.SetDialer(func(address string, port uint16) int {
 		callCount1++
 		return -104
 	})
 
-	// Overwrite with second dialer
 	engine.SetDialer(func(address string, port uint16) int {
 		callCount2++
 		return -102
 	})
 
-	// Verify only one entry in map
 	dialerAccess.RLock()
 	count := 0
 	for k := range dialerMap {
@@ -155,7 +149,6 @@ func TestDialerConcurrentAccess(t *testing.T) {
 	var wg sync.WaitGroup
 	iterations := 100
 
-	// Concurrent SetDialer calls (writers)
 	for i := 0; i < iterations; i++ {
 		wg.Add(1)
 		go func(n int) {
@@ -170,7 +163,6 @@ func TestDialerConcurrentAccess(t *testing.T) {
 		}(i)
 	}
 
-	// Concurrent dialerMap reads (simulating callback access)
 	for i := 0; i < iterations; i++ {
 		wg.Add(1)
 		go func() {
@@ -183,7 +175,6 @@ func TestDialerConcurrentAccess(t *testing.T) {
 
 	wg.Wait()
 
-	// Verify final state consistency: at most 1 entry for this engine
 	dialerAccess.RLock()
 	count := 0
 	for k := range dialerMap {
@@ -210,7 +201,6 @@ func TestMultipleEnginesDialers(t *testing.T) {
 		return -102
 	})
 
-	// Verify both dialers are registered
 	dialerAccess.RLock()
 	_, exists1 := dialerMap[engine1.ptr]
 	_, exists2 := dialerMap[engine2.ptr]
@@ -220,7 +210,6 @@ func TestMultipleEnginesDialers(t *testing.T) {
 		t.Error("both dialers should be registered")
 	}
 
-	// Destroy engine1, verify engine2's dialer still exists
 	engine1.Destroy()
 
 	dialerAccess.RLock()

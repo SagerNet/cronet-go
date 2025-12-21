@@ -31,14 +31,12 @@ func TestFramedPacketConn_ReadWrite(t *testing.T) {
 	defer windows.Closesocket(windows.Handle(fd))
 	defer conn.Close()
 
-	// Test write from conn to fd
 	testData := []byte("framed message test")
 	_, err = conn.WriteTo(testData, nil)
 	if err != nil {
 		t.Fatalf("WriteTo failed: %v", err)
 	}
 
-	// Read from fd side (need to manually parse length prefix)
 	buf := make([]byte, 1024)
 	var flags uint32
 	var bytesReceived uint32
@@ -69,7 +67,6 @@ func TestFramedPacketConn_BidirectionalCommunication(t *testing.T) {
 	defer windows.Closesocket(windows.Handle(fd))
 	defer conn.Close()
 
-	// fd → conn: send with length prefix
 	testData := []byte("hello from fd")
 	frame := make([]byte, 2+len(testData))
 	binary.BigEndian.PutUint16(frame[:2], uint16(len(testData)))
@@ -82,7 +79,6 @@ func TestFramedPacketConn_BidirectionalCommunication(t *testing.T) {
 		t.Fatalf("WSASend failed: %v", err)
 	}
 
-	// Read from conn
 	buf := make([]byte, 1024)
 	n, _, err := conn.ReadFrom(buf)
 	if err != nil {
@@ -92,14 +88,12 @@ func TestFramedPacketConn_BidirectionalCommunication(t *testing.T) {
 		t.Errorf("expected %q, got %q", testData, buf[:n])
 	}
 
-	// conn → fd
 	testData2 := []byte("hello from conn")
 	_, err = conn.WriteTo(testData2, nil)
 	if err != nil {
 		t.Fatalf("WriteTo failed: %v", err)
 	}
 
-	// Read from fd with length prefix
 	var flags uint32
 	var bytesReceived uint32
 	buf2 := make([]byte, 1024)
@@ -123,7 +117,6 @@ func TestFramedPacketConn_MessageBoundary(t *testing.T) {
 	defer windows.Closesocket(windows.Handle(fd))
 	defer conn.Close()
 
-	// Send multiple messages
 	messages := [][]byte{
 		[]byte("msg1"),
 		[]byte("longer message 2"),
@@ -137,9 +130,7 @@ func TestFramedPacketConn_MessageBoundary(t *testing.T) {
 		}
 	}
 
-	// Read from fd side and verify boundaries
 	for i, expected := range messages {
-		// Read length prefix
 		lengthBuf := make([]byte, 2)
 		var flags uint32
 		var bytesReceived uint32
@@ -154,7 +145,6 @@ func TestFramedPacketConn_MessageBoundary(t *testing.T) {
 			t.Errorf("message %d: expected length %d, got %d", i, len(expected), length)
 		}
 
-		// Read payload
 		payload := make([]byte, length)
 		wsaBuf2 := windows.WSABuf{Len: uint32(length), Buf: &payload[0]}
 		err = windows.WSARecv(windows.Handle(fd), &wsaBuf2, 1, &bytesReceived, &flags, nil, nil)
@@ -175,7 +165,6 @@ func TestFramedPacketConn_MaxSize(t *testing.T) {
 	defer windows.Closesocket(windows.Handle(fd))
 	defer conn.Close()
 
-	// Test packet larger than 65535 should fail
 	hugePacket := make([]byte, 65536)
 	_, err = conn.WriteTo(hugePacket, nil)
 	if err == nil {

@@ -67,7 +67,7 @@ func setupTestEnv(t *testing.T) *testEnv {
 	}
 }
 
-func (e *testEnv) newNaiveClient(t *testing.T, config cronet.NaiveClientConfig) *cronet.NaiveClient {
+func (e *testEnv) newNaiveClient(t *testing.T, config cronet.NaiveClientOptions) *cronet.NaiveClient {
 	if !config.ServerAddress.IsValid() {
 		config.ServerAddress = M.ParseSocksaddrHostPort("127.0.0.1", naiveServerPort)
 	}
@@ -126,7 +126,7 @@ func startEchoServer(t *testing.T, port uint16) {
 // TestNaiveBasic verifies basic NaiveClient connectivity
 func TestNaiveBasic(t *testing.T) {
 	env := setupTestEnv(t)
-	client := env.newNaiveClient(t, cronet.NaiveClientConfig{
+	client := env.newNaiveClient(t, cronet.NaiveClientOptions{
 		DNSResolver: localhostDNSResolver(t),
 	})
 	startEchoServer(t, 15000)
@@ -149,7 +149,7 @@ func TestNaiveBasic(t *testing.T) {
 func TestNaiveIperf3(t *testing.T) {
 	startIperf3Server(t)
 	env := setupTestEnv(t)
-	client := env.newNaiveClient(t, cronet.NaiveClientConfig{
+	client := env.newNaiveClient(t, cronet.NaiveClientOptions{
 		DNSResolver: localhostDNSResolver(t),
 	})
 
@@ -167,7 +167,7 @@ func TestNaiveConcurrency(t *testing.T) {
 		startIperf3ServerOnPort(t, uint16(iperf3Port+i))
 	}
 	env := setupTestEnv(t)
-	client := env.newNaiveClient(t, cronet.NaiveClientConfig{
+	client := env.newNaiveClient(t, cronet.NaiveClientOptions{
 		InsecureConcurrency: 3,
 		DNSResolver:         localhostDNSResolver(t),
 	})
@@ -191,7 +191,7 @@ func TestNaiveConcurrency(t *testing.T) {
 func TestNaiveParallel(t *testing.T) {
 	startIperf3Server(t)
 	env := setupTestEnv(t)
-	client := env.newNaiveClient(t, cronet.NaiveClientConfig{
+	client := env.newNaiveClient(t, cronet.NaiveClientOptions{
 		DNSResolver: localhostDNSResolver(t),
 	})
 
@@ -208,7 +208,7 @@ func TestNaiveParallel(t *testing.T) {
 // reads are in progress. This verifies the fix for buffer lifetime issues.
 func TestNaiveCloseWhileReading(t *testing.T) {
 	env := setupTestEnv(t)
-	client := env.newNaiveClient(t, cronet.NaiveClientConfig{
+	client := env.newNaiveClient(t, cronet.NaiveClientOptions{
 		DNSResolver: localhostDNSResolver(t),
 	})
 	startEchoServer(t, 16000)

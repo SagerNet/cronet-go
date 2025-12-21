@@ -131,12 +131,10 @@ func TestCreateUDPLoopbackPair_BidirectionalCommunication(t *testing.T) {
 	defer syscall.Close(fd)
 	defer conn.Close()
 
-	// Set fd to blocking mode (it may be non-blocking after dup)
-	if err := syscall.SetNonblock(fd, false); err != nil {
+	err = syscall.SetNonblock(fd, false)
+	if err != nil {
 		t.Fatalf("failed to set blocking mode: %v", err)
 	}
-
-	// fd → conn
 	testData := []byte("hello from fd via UDP loopback")
 	_, err = syscall.Write(fd, testData)
 	if err != nil {

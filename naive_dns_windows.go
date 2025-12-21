@@ -13,8 +13,8 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// framedPacketConn wraps a stream socket and provides packet semantics using
-// length-prefix framing. Each packet is prefixed with a 2-byte big-endian length.
+const maxFramedPacketSize = 65535
+
 type framedPacketConn struct {
 	conn      net.Conn
 	readMutex sync.Mutex
@@ -30,7 +30,6 @@ func (c *framedPacketConn) ReadFrom(p []byte) (n int, addr net.Addr, err error) 
 	c.readMutex.Lock()
 	defer c.readMutex.Unlock()
 
-	// Read 2-byte length prefix
 	var lengthBuf [2]byte
 	_, err = io.ReadFull(c.conn, lengthBuf[:])
 	if err != nil {
@@ -42,17 +41,15 @@ func (c *framedPacketConn) ReadFrom(p []byte) (n int, addr net.Addr, err error) 
 		return 0, nil, errors.New("buffer too small for packet")
 	}
 
-	// Read payload
 	n, err = io.ReadFull(c.conn, p[:length])
 	return n, nil, err
 }
 
 func (c *framedPacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
-	if len(p) > 65535 {
+	if len(p) > maxFramedPacketSize {
 		return 0, errors.New("packet too large")
 	}
 
-	// Write length prefix + payload atomically
 	frame := make([]byte, 2+len(p))
 	binary.BigEndian.PutUint16(frame[:2], uint16(len(p)))
 	copy(frame[2:], p)
@@ -84,43 +81,20 @@ func (c *framedPacketConn) SetWriteDeadline(t time.Time) error {
 	return c.conn.SetWriteDeadline(t)
 }
 
-// Read implements net.Conn for connected packet sockets.
-// For framedPacketConn, this reads a single framed packet.
 func (c *framedPacketConn) Read(p []byte) (n int, err error) {
 	n, _, err = c.ReadFrom(p)
 	return
 }
 
-// Write implements net.Conn for connected packet sockets.
-// For framedPacketConn, this writes a single framed packet.
 func (c *framedPacketConn) Write(p []byte) (n int, err error) {
 	return c.WriteTo(p, nil)
 }
 
-// RemoteAddr implements net.Conn. Returns nil for connected socketpair.
 func (c *framedPacketConn) RemoteAddr() net.Addr {
 	return nil
 }
 
-func createPacketSocketPair(forceUDPLoopback bool) (cronetFD int, proxyConn net.PacketConn, err error) {
-	if forceUDPLoopback {
-		return createUDPLoopbackPair()
-	}
-
-	// Create AF_UNIX SOCK_STREAM socket pair
-	cronetSocket, proxySocket, err := createUnixSocketPair()
-	if err != nil {
-		// Fallback to UDP loopback pair
-		return createUDPLoopbackPair()
-	}
-
-	// Wrap the proxy side with framed packet conn
-	return int(cronetSocket), newFramedPacketConn(newWinsockStreamConn(proxySocket)), nil
-}
-
-// createUDPLoopbackPair creates a UDP socket pair using loopback as fallback.
 func createUDPLoopbackPair() (cronetFD int, proxyConn net.PacketConn, err error) {
-	// Create a UDP listener on loopback
 	proxyAddress, err := net.ResolveUDPAddr("udp", "127.0.0.1:0")
 	if err != nil {
 		return -1, nil, err
@@ -131,7 +105,6 @@ func createUDPLoopbackPair() (cronetFD int, proxyConn net.PacketConn, err error)
 	}
 	proxyLocalAddress := proxyUDPConn.LocalAddr().(*net.UDPAddr)
 
-	// Create cronet-side UDP socket and connect to proxy
 	cronetAddress, err := net.ResolveUDPAddr("udp", "127.0.0.1:0")
 	if err != nil {
 		proxyUDPConn.Close()
@@ -144,7 +117,6 @@ func createUDPLoopbackPair() (cronetFD int, proxyConn net.PacketConn, err error)
 	}
 	cronetLocalAddress := cronetConn.LocalAddr().(*net.UDPAddr)
 
-	// Connect proxyUDPConn to cronetConn's address using syscall
 	proxyRawConn, err := proxyUDPConn.SyscallConn()
 	if err != nil {
 		cronetConn.Close()
@@ -169,7 +141,6 @@ func createUDPLoopbackPair() (cronetFD int, proxyConn net.PacketConn, err error)
 		return -1, nil, connectError
 	}
 
-	// Duplicate cronetConn's handle for Chromium
 	cronetRawConn, err := cronetConn.SyscallConn()
 	if err != nil {
 		cronetConn.Close()
@@ -206,9 +177,7 @@ func createUDPLoopbackPair() (cronetFD int, proxyConn net.PacketConn, err error)
 		return -1, nil, duplicateError
 	}
 
-	// Close the Go-side connection (duplicated handle is still valid)
 	cronetConn.Close()
 
 	return int(cronetHandle), proxyUDPConn, nil
 }
-

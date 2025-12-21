@@ -5,6 +5,9 @@ build:
 	go run -v ./cmd/build-naive build $(TARGET_FLAG)
 	go run -v ./cmd/build-naive package --local $(TARGET_FLAG)
 
+generate_net_errors:
+	go run ./cmd/build-naive generate-net-errors
+
 test: make
 	go test -v .
 

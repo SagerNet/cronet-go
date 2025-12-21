@@ -23,17 +23,24 @@ import (
 	"strings"
 	"time"
 
-	mDNS "github.com/miekg/dns"
 	"github.com/sagernet/sing/common/bufio"
 	M "github.com/sagernet/sing/common/metadata"
+
+	mDNS "github.com/miekg/dns"
 )
+
+// DNSResolverFunc resolves a DNS request into a DNS response.
+//
+// The resolver is used by NaiveClient's optional in-process DNS server. The
+// returned message should be a response to the request; the implementation
+// will normalize the ID and question section as needed.
+type DNSResolverFunc func(ctx context.Context, request *mDNS.Msg) (response *mDNS.Msg)
 
 const chromiumDNSUDPMaxSize = 512
 
 func serveDNSPacketConn(ctx context.Context, conn net.PacketConn, resolver DNSResolverFunc) error {
 	defer conn.Close()
 
-	// Datagram sockets are connectionless - closing the peer doesn't unblock ReadFrom
 	go func() {
 		<-ctx.Done()
 		conn.Close()
@@ -63,7 +70,8 @@ func serveDNSPacketConn(ctx context.Context, conn net.PacketConn, resolver DNSRe
 		}
 
 		var request mDNS.Msg
-		if err := request.Unpack(buffer[:n]); err != nil {
+		err = request.Unpack(buffer[:n])
+		if err != nil {
 			continue
 		}
 
@@ -109,7 +117,8 @@ func serveDNSStreamConn(ctx context.Context, conn net.Conn, resolver DNSResolver
 
 		_ = conn.SetReadDeadline(time.Now().Add(30 * time.Second))
 		var queryLength uint16
-		if err := binary.Read(conn, binary.BigEndian, &queryLength); err != nil {
+		err := binary.Read(conn, binary.BigEndian, &queryLength)
+		if err != nil {
 			if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) {
 				return nil
 			}
@@ -120,7 +129,7 @@ func serveDNSStreamConn(ctx context.Context, conn net.Conn, resolver DNSResolver
 		}
 
 		query := make([]byte, int(queryLength))
-		_, err := io.ReadFull(conn, query)
+		_, err = io.ReadFull(conn, query)
 		if err != nil {
 			if errors.Is(err, net.ErrClosed) {
 				return nil
@@ -129,7 +138,8 @@ func serveDNSStreamConn(ctx context.Context, conn net.Conn, resolver DNSResolver
 		}
 
 		var request mDNS.Msg
-		if err := request.Unpack(query); err != nil {
+		err = request.Unpack(query)
+		if err != nil {
 			continue
 		}
 
@@ -213,7 +223,6 @@ func wrapDNSResolverWithECH(
 	}
 }
 
-// rewriteHTTPSQueryName handles both direct (example.com) and port-prefixed (_443._https.example.com) queries.
 func rewriteHTTPSQueryName(queryName, fromServer, toServer string) string {
 	queryName = strings.TrimSuffix(queryName, ".")
 	fromServer = strings.TrimSuffix(fromServer, ".")
@@ -256,7 +265,6 @@ func rewriteHTTPSAnswerNames(response *mDNS.Msg, fromServer, toServer string) {
 	}
 }
 
-// matchesServerName handles both direct and port-prefixed (_<port>._https.<name>) query formats.
 func matchesServerName(queryName, serverName string) bool {
 	queryName = strings.TrimSuffix(queryName, ".")
 	serverName = strings.TrimSuffix(serverName, ".")

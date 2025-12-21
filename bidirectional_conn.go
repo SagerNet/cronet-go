@@ -9,11 +9,10 @@ import (
 	"time"
 )
 
-// BidirectionalConn is a wrapper from BidirectionalStream to net.Conn
 type BidirectionalConn struct {
-	stream      BidirectionalStream
-	cancelOnce  sync.Once // Ensures Cancel is called at most once
-	destroyOnce sync.Once // Ensures Destroy is called at most once
+	stream           BidirectionalStream
+	cancelOnce       sync.Once // Ensures Cancel is called at most once
+	destroyOnce      sync.Once // Ensures Destroy is called at most once
 	readWaitHeaders  bool
 	writeWaitHeaders bool
 	access           sync.Mutex
@@ -25,26 +24,14 @@ type BidirectionalConn struct {
 	read             chan int
 	write            chan struct{}
 	headers          map[string]string
-
-	// readSemaphore/writeSemaphore ensure that only one Read/Write operation is
-	// in-flight at a time. This is required for Cronet and prevents reuse of
-	// internal buffers while Cronet still holds pointers to them.
-	readSemaphore  chan struct{}
-	writeSemaphore chan struct{}
-
-	// Cronet holds pointers to the Read/Write buffers asynchronously until the
-	// corresponding callback fires. Never pass caller-provided buffers directly,
-	// as they might reside on the Go stack and be moved during stack growth.
-	readBuffer  []byte
-	writeBuffer []byte
-
-	// Buffer safety: when Read/Write return due to close/done, Cronet may
-	// still hold the buffer. These channels are closed by callbacks to signal
-	// it's safe to return. sync.Once ensures close happens exactly once.
-	readDone      chan struct{}
-	writeDone     chan struct{}
-	readDoneOnce  sync.Once
-	writeDoneOnce sync.Once
+	readSemaphore    chan struct{}
+	writeSemaphore   chan struct{}
+	readBuffer       []byte
+	writeBuffer      []byte
+	readDone         chan struct{}
+	writeDone        chan struct{}
+	readDoneOnce     sync.Once
+	writeDoneOnce    sync.Once
 }
 
 func (e StreamEngine) CreateConn(readWaitHeaders bool, writeWaitHeaders bool) *BidirectionalConn {
@@ -84,7 +71,6 @@ func (c *BidirectionalConn) Start(method string, url string, headers map[string]
 	return nil
 }
 
-// Read implements io.Reader
 func (c *BidirectionalConn) Read(p []byte) (n int, err error) {
 	select {
 	case <-c.close:
@@ -151,18 +137,14 @@ func (c *BidirectionalConn) Read(p []byte) (n int, err error) {
 		}
 		return bytesRead, nil
 	case <-c.done:
-		// Wait for Cronet to finish using the buffer before returning.
-		// Callbacks will close readDone when done.
 		<-c.readDone
 		return 0, c.err
 	case <-c.close:
-		// Close() was called. Wait for OnCanceled to signal buffer safety.
 		<-c.readDone
 		return 0, net.ErrClosed
 	}
 }
 
-// Write implements io.Writer
 func (c *BidirectionalConn) Write(p []byte) (n int, err error) {
 	select {
 	case <-c.close:
@@ -224,28 +206,22 @@ func (c *BidirectionalConn) Write(p []byte) (n int, err error) {
 	case <-c.write:
 		return len(p), nil
 	case <-c.done:
-		// Wait for Cronet to finish using the buffer before returning.
-		// Callbacks will close writeDone when done.
 		<-c.writeDone
 		return 0, c.err
 	case <-c.close:
-		// Close() was called. Wait for OnCanceled to signal buffer safety.
 		<-c.writeDone
 		return 0, net.ErrClosed
 	}
 }
 
-// Done implements context.Context
 func (c *BidirectionalConn) Done() <-chan struct{} {
 	return c.done
 }
 
-// Err implements context.Context
 func (c *BidirectionalConn) Err() error {
 	return c.err
 }
 
-// Close implements io.Closer
 func (c *BidirectionalConn) Close() error {
 	c.access.Lock()
 
@@ -276,27 +252,22 @@ func (c *BidirectionalConn) signalWriteDone() {
 	c.writeDoneOnce.Do(func() { close(c.writeDone) })
 }
 
-// LocalAddr implements net.Conn
 func (c *BidirectionalConn) LocalAddr() net.Addr {
 	return nil
 }
 
-// RemoteAddr implements net.Conn
 func (c *BidirectionalConn) RemoteAddr() net.Addr {
 	return nil
 }
 
-// SetDeadline implements net.Conn
 func (c *BidirectionalConn) SetDeadline(t time.Time) error {
 	return os.ErrInvalid
 }
 
-// SetReadDeadline implements net.Conn
 func (c *BidirectionalConn) SetReadDeadline(t time.Time) error {
 	return os.ErrInvalid
 }
 
-// SetWriteDeadline implements net.Conn
 func (c *BidirectionalConn) SetWriteDeadline(t time.Time) error {
 	return os.ErrInvalid
 }

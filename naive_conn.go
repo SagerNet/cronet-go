@@ -14,7 +14,10 @@ import (
 	"github.com/sagernet/sing/common/rw"
 )
 
-const paddingCount = 8
+const (
+	paddingCount        = 8
+	maxPaddingChunkSize = 65535
+)
 
 func generatePaddingHeader() string {
 	paddingLen := rand.Intn(32) + 30
@@ -94,8 +97,7 @@ func (p *paddingConn) writeWithPadding(writer io.Writer, data []byte) (n int, er
 		header[2] = byte(paddingSize)
 		common.Must1(buffer.Write(data))
 		if paddingSize > 0 {
-			padding := buffer.Extend(paddingSize)
-			_, _ = rand.Read(padding)
+			buffer.Extend(paddingSize)
 		}
 		_, err = writer.Write(buffer.Bytes())
 		if err == nil {
@@ -110,7 +112,7 @@ func (p *paddingConn) writeWithPadding(writer io.Writer, data []byte) (n int, er
 func (p *paddingConn) writeBufferWithPadding(writer io.Writer, buffer *buf.Buffer) error {
 	if p.writePadding < paddingCount {
 		bufferLen := buffer.Len()
-		if bufferLen > 65535 {
+		if bufferLen > maxPaddingChunkSize {
 			_, err := p.writeChunked(writer, buffer.Bytes())
 			return err
 		}
@@ -119,8 +121,7 @@ func (p *paddingConn) writeBufferWithPadding(writer io.Writer, buffer *buf.Buffe
 		binary.BigEndian.PutUint16(header, uint16(bufferLen))
 		header[2] = byte(paddingSize)
 		if paddingSize > 0 {
-			padding := buffer.Extend(paddingSize)
-			_, _ = rand.Read(padding)
+			buffer.Extend(paddingSize)
 		}
 		p.writePadding++
 	}
@@ -130,9 +131,9 @@ func (p *paddingConn) writeBufferWithPadding(writer io.Writer, buffer *buf.Buffe
 func (p *paddingConn) writeChunked(writer io.Writer, data []byte) (n int, err error) {
 	for len(data) > 0 {
 		var chunk []byte
-		if len(data) > 65535 {
-			chunk = data[:65535]
-			data = data[65535:]
+		if len(data) > maxPaddingChunkSize {
+			chunk = data[:maxPaddingChunkSize]
+			data = data[maxPaddingChunkSize:]
 		} else {
 			chunk = data
 			data = nil
@@ -163,7 +164,7 @@ func (p *paddingConn) rearHeadroom() int {
 
 func (p *paddingConn) writerMTU() int {
 	if p.writePadding < paddingCount {
-		return 65535
+		return maxPaddingChunkSize
 	}
 	return 0
 }
@@ -197,7 +198,7 @@ func (c *naiveConn) Handshake() error {
 		return err
 	}
 	if headers[":status"] != "200" {
-		return E.New("unexcepted response status: ", headers[":status"])
+		return E.New("unexpected response status: ", headers[":status"])
 	}
 	return nil
 }
@@ -208,7 +209,7 @@ func (c *naiveConn) HandshakeContext(ctx context.Context) error {
 		return err
 	}
 	if headers[":status"] != "200" {
-		return E.New("unexcepted response status: ", headers[":status"])
+		return E.New("unexpected response status: ", headers[":status"])
 	}
 	return nil
 }

@@ -55,12 +55,11 @@ func cronetBufferCallbackOnDestroy(self C.Cronet_BufferCallbackPtr, buffer C.Cro
 	entry := bufferCallbackMap[ptrInt]
 	bufferCallbackAccess.RUnlock()
 	if entry == nil || entry.destroyed.Load() {
-		return // Post-destroy callback, silently ignore
+		return
 	}
 	if entry.callback != nil {
 		entry.callback(BufferCallback{ptrInt}, Buffer{uintptr(unsafe.Pointer(buffer))})
 	}
-	// OnDestroy is the cleanup signal - safe to delete
 	bufferCallbackAccess.Lock()
 	delete(bufferCallbackMap, ptrInt)
 	bufferCallbackAccess.Unlock()

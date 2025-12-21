@@ -90,7 +90,7 @@ func TestNaiveECH(t *testing.T) {
 	}
 
 	// Create NaiveClient with ECH config
-	client, err := cronet.NewNaiveClient(cronet.NaiveClientConfig{
+	client, err := cronet.NewNaiveClient(cronet.NaiveClientOptions{
 		ServerAddress:           M.ParseSocksaddrHostPort("127.0.0.1", echServerPort),
 		ServerName:              "example.org",
 		Username:                "test",

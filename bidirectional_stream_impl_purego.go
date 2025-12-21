@@ -10,8 +10,6 @@ import (
 	"github.com/ebitengine/purego"
 )
 
-// bidirectionalStreamCallbackStruct mirrors the C struct bidirectional_stream_callback.
-// It contains 8 function pointers in the same order as the C struct.
 type bidirectionalStreamCallbackStruct struct {
 	onStreamReady              uintptr
 	onResponseHeadersReceived  uintptr
@@ -23,14 +21,12 @@ type bidirectionalStreamCallbackStruct struct {
 	onCanceled                 uintptr
 }
 
-// bidirectionalStreamHeaderArray mirrors the C struct bidirectional_stream_header_array
 type bidirectionalStreamHeaderArray struct {
 	count    uintptr
 	capacity uintptr
 	headers  uintptr
 }
 
-// bidirectionalStreamHeader mirrors the C struct bidirectional_stream_header
 type bidirectionalStreamHeader struct {
 	key   uintptr // const char*
 	value uintptr // const char*
@@ -52,7 +48,7 @@ func init() {
 func bsOnStreamReadyCallback(stream uintptr) uintptr {
 	cb := instanceOfBidirectionalStreamCallback(stream)
 	if cb == nil {
-		return 0 // Post-destroy callback, silently ignore
+		return 0
 	}
 	cb.OnStreamReady(BidirectionalStream{stream})
 	return 0
@@ -61,7 +57,7 @@ func bsOnStreamReadyCallback(stream uintptr) uintptr {
 func bsOnResponseHeadersReceivedCallback(stream, headers, negotiatedProtocol uintptr) uintptr {
 	cb := instanceOfBidirectionalStreamCallback(stream)
 	if cb == nil {
-		return 0 // Post-destroy callback, silently ignore
+		return 0
 	}
 	headerMap := parseHeaderArray(headers)
 	cb.OnResponseHeadersReceived(BidirectionalStream{stream}, headerMap, cronet.GoString(negotiatedProtocol))
@@ -71,7 +67,7 @@ func bsOnResponseHeadersReceivedCallback(stream, headers, negotiatedProtocol uin
 func bsOnReadCompletedCallback(stream, data uintptr, bytesRead int32) uintptr {
 	cb := instanceOfBidirectionalStreamCallback(stream)
 	if cb == nil {
-		return 0 // Post-destroy callback, silently ignore
+		return 0
 	}
 	cb.OnReadCompleted(BidirectionalStream{stream}, int(bytesRead))
 	return 0
@@ -80,7 +76,7 @@ func bsOnReadCompletedCallback(stream, data uintptr, bytesRead int32) uintptr {
 func bsOnWriteCompletedCallback(stream, data uintptr) uintptr {
 	cb := instanceOfBidirectionalStreamCallback(stream)
 	if cb == nil {
-		return 0 // Post-destroy callback, silently ignore
+		return 0
 	}
 	cb.OnWriteCompleted(BidirectionalStream{stream})
 	return 0
@@ -89,7 +85,7 @@ func bsOnWriteCompletedCallback(stream, data uintptr) uintptr {
 func bsOnResponseTrailersReceivedCallback(stream, trailers uintptr) uintptr {
 	cb := instanceOfBidirectionalStreamCallback(stream)
 	if cb == nil {
-		return 0 // Post-destroy callback, silently ignore
+		return 0
 	}
 	trailerMap := parseHeaderArray(trailers)
 	cb.OnResponseTrailersReceived(BidirectionalStream{stream}, trailerMap)
@@ -99,10 +95,9 @@ func bsOnResponseTrailersReceivedCallback(stream, trailers uintptr) uintptr {
 func bsOnSucceededCallback(stream uintptr) uintptr {
 	cb := instanceOfBidirectionalStreamCallback(stream)
 	if cb == nil {
-		return 0 // Post-destroy callback, silently ignore
+		return 0
 	}
 	cb.OnSucceeded(BidirectionalStream{stream})
-	// Terminal callback - safe to cleanup
 	cleanupBidirectionalStream(stream)
 	return 0
 }
@@ -110,10 +105,9 @@ func bsOnSucceededCallback(stream uintptr) uintptr {
 func bsOnFailedCallback(stream uintptr, netError int32) uintptr {
 	cb := instanceOfBidirectionalStreamCallback(stream)
 	if cb == nil {
-		return 0 // Post-destroy callback, silently ignore
+		return 0
 	}
 	cb.OnFailed(BidirectionalStream{stream}, int(netError))
-	// Terminal callback - safe to cleanup
 	cleanupBidirectionalStream(stream)
 	return 0
 }
@@ -121,15 +115,13 @@ func bsOnFailedCallback(stream uintptr, netError int32) uintptr {
 func bsOnCanceledCallback(stream uintptr) uintptr {
 	cb := instanceOfBidirectionalStreamCallback(stream)
 	if cb == nil {
-		return 0 // Post-destroy callback, silently ignore
+		return 0
 	}
 	cb.OnCanceled(BidirectionalStream{stream})
-	// Terminal callback - safe to cleanup
 	cleanupBidirectionalStream(stream)
 	return 0
 }
 
-// parseHeaderArray parses the bidirectional_stream_header_array pointer into a Go map
 func parseHeaderArray(ptr uintptr) map[string]string {
 	if ptr == 0 {
 		return nil

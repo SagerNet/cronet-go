@@ -7,11 +7,8 @@ import (
 	"net"
 	"net/url"
 	"os"
-	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
-	"time"
 
 	"github.com/sagernet/sing/common/bufio"
 	E "github.com/sagernet/sing/common/exceptions"
@@ -22,110 +19,76 @@ import (
 
 var _ N.Dialer = (*NaiveClient)(nil)
 
-// QUICCongestionControl represents the QUIC congestion control algorithm.
 type QUICCongestionControl string
 
 const (
-	// QUICCongestionControlDefault uses Chromium's default (BBR).
 	QUICCongestionControlDefault QUICCongestionControl = ""
-	// QUICCongestionControlBBR uses BBRv1.
-	QUICCongestionControlBBR QUICCongestionControl = "TBBR"
-	// QUICCongestionControlBBRv2 uses BBRv2.
-	QUICCongestionControlBBRv2 QUICCongestionControl = "B2ON"
-	// QUICCongestionControlCubic uses TCP Cubic.
-	QUICCongestionControlCubic QUICCongestionControl = "QBIC"
-	// QUICCongestionControlReno uses TCP Reno.
-	QUICCongestionControlReno QUICCongestionControl = "RENO"
+	QUICCongestionControlBBR     QUICCongestionControl = "TBBR"
+	QUICCongestionControlBBRv2   QUICCongestionControl = "B2ON"
+	QUICCongestionControlCubic   QUICCongestionControl = "QBIC"
+	QUICCongestionControlReno    QUICCongestionControl = "RENO"
 )
 
-// clientState represents the lifecycle state of a NaiveClient.
 type clientState uint32
 
 const (
-	clientStateCreated  clientState = iota // Initial state after NewNaiveClient
-	clientStateStarting                    // Start() in progress
-	clientStateRunning                     // Ready for Dial calls
-	clientStateClosing                     // Close() in progress
-	clientStateClosed                      // Terminal state
+	clientStateCreated clientState = iota
+	clientStateStarting
+	clientStateRunning
+	clientStateClosing
+	clientStateClosed
 )
 
 type NaiveClient struct {
-	state                             atomic.Uint32
-	ctx                               context.Context
-	dialer                            N.Dialer
-	serverAddress                     M.Socksaddr
-	serverName                        string
-	serverURL                         string
-	authorization                     string
-	extraHeaders                      map[string]string
+	state                   atomic.Uint32
+	ctx                     context.Context
+	dialer                  N.Dialer
+	serverAddress           M.Socksaddr
+	serverName              string
+	serverURL               string
+	authorization           string
+	extraHeaders            map[string]string
 	trustedRootCertificates string
 	dnsResolver             DNSResolverFunc
-	echEnabled                        bool
-	echConfigList                     []byte
-	echQueryServerName                string
-	echMutex                          sync.RWMutex
-	testForceUDPLoopback              bool
-	quicEnabled                       bool
-	quicCongestionControl             QUICCongestionControl
-	concurrency                       int
-	counter                           atomic.Uint64
-	started                           chan struct{}
-	engine                            Engine
-	streamEngine                      StreamEngine
-	activeConnections                 sync.WaitGroup
-	connectionsMutex                  sync.Mutex
-	connections                       []*trackedNaiveConn
-	proxyWaitGroup                    sync.WaitGroup
-	proxyCancel                       context.CancelFunc
+	echEnabled              bool
+	echConfigList           []byte
+	echQueryServerName      string
+	echMutex                sync.RWMutex
+	testForceUDPLoopback    bool
+	quicEnabled             bool
+	quicCongestionControl   QUICCongestionControl
+	concurrency             int
+	counter                 atomic.Uint64
+	started                 chan struct{}
+	engine                  Engine
+	streamEngine            StreamEngine
+	activeConnections       sync.WaitGroup
+	connectionsMutex        sync.Mutex
+	connections             []*trackedNaiveConn
+	proxyWaitGroup          sync.WaitGroup
+	proxyCancel             context.CancelFunc
 }
 
-type NaiveClientConfig struct {
-	Context                           context.Context
-	ServerAddress                     M.Socksaddr
-	ServerName                        string
-	Username                          string
-	Password                          string
+type NaiveClientOptions struct {
+	Context                 context.Context
+	ServerAddress           M.Socksaddr
+	ServerName              string
+	Username                string
+	Password                string
 	InsecureConcurrency     int
 	ExtraHeaders            map[string]string
-	TrustedRootCertificates string // PEM format
+	TrustedRootCertificates string
 	DNSResolver             DNSResolverFunc
-	Dialer                            N.Dialer
-
-	// ECHEnabled enables Encrypted Client Hello support.
-	// When true, Chromium will query HTTPS records from DNS to obtain ECH configs.
-	// This works with or without a custom DNSResolver:
-	// - With DNSResolver: ECH configs from custom DNS (or ECHConfigList if set)
-	// - Without DNSResolver: ECH configs from system DNS
-	ECHEnabled bool
-
-	// ECHConfigList is the raw ECH config list in wire format (not PEM).
-	// When set, the DNS resolver will inject this into HTTPS record responses
-	// for the server name. This allows manual ECH configuration when the
-	// upstream DNS doesn't provide ECH configs.
-	// If ECH negotiation fails and the server provides retry configs,
-	// NaiveClient will automatically update this value internally.
-	ECHConfigList []byte
-
-	// ECHQueryServerName overrides the domain name used for ECH HTTPS record queries.
-	// If empty, defaults to ServerName.
-	// This is useful when the ECH config should be fetched from a different domain
-	// than the one used for SNI.
-	ECHQueryServerName string
-
-	// TestForceUDPLoopback forces the use of UDP loopback sockets instead of
-	// Unix domain sockets for DNS interception. This is for testing only.
-	TestForceUDPLoopback bool
-
-	// QUIC enables QUIC protocol and forces its use without TCP/HTTP fallback.
-	// The server must support QUIC (sing-box naive with network: udp).
-	QUIC bool
-
-	// QUICCongestionControl sets the congestion control algorithm for QUIC.
-	// Default is BBR. Only effective when QUIC is enabled.
-	QUICCongestionControl QUICCongestionControl
+	Dialer                  N.Dialer
+	ECHEnabled              bool
+	ECHConfigList           []byte
+	ECHQueryServerName      string
+	TestForceUDPLoopback    bool
+	QUIC                    bool
+	QUICCongestionControl   QUICCongestionControl
 }
 
-func NewNaiveClient(config NaiveClientConfig) (*NaiveClient, error) {
+func NewNaiveClient(config NaiveClientOptions) (*NaiveClient, error) {
 	err := checkLibrary()
 	if err != nil {
 		return nil, err
@@ -169,28 +132,27 @@ func NewNaiveClient(config NaiveClientConfig) (*NaiveClient, error) {
 	}
 
 	return &NaiveClient{
-		ctx:                               ctx,
-		dialer:                            dialer,
-		serverAddress:                     config.ServerAddress,
-		serverName:                        serverName,
-		serverURL:                         serverURL.String(),
-		authorization:                     authorization,
+		ctx:                     ctx,
+		dialer:                  dialer,
+		serverAddress:           config.ServerAddress,
+		serverName:              serverName,
+		serverURL:               serverURL.String(),
+		authorization:           authorization,
 		extraHeaders:            config.ExtraHeaders,
 		trustedRootCertificates: config.TrustedRootCertificates,
 		dnsResolver:             config.DNSResolver,
-		echEnabled:                        config.ECHEnabled,
-		echConfigList:                     config.ECHConfigList,
-		echQueryServerName:                config.ECHQueryServerName,
-		testForceUDPLoopback:              config.TestForceUDPLoopback,
-		quicEnabled:                       config.QUIC,
-		quicCongestionControl:             config.QUICCongestionControl,
-		concurrency:                       concurrency,
-		started:                           make(chan struct{}),
+		echEnabled:              config.ECHEnabled,
+		echConfigList:           config.ECHConfigList,
+		echQueryServerName:      config.ECHQueryServerName,
+		testForceUDPLoopback:    config.TestForceUDPLoopback,
+		quicEnabled:             config.QUIC,
+		quicCongestionControl:   config.QUICCongestionControl,
+		concurrency:             concurrency,
+		started:                 make(chan struct{}),
 	}, nil
 }
 
 func (c *NaiveClient) Start() error {
-	// Atomic transition: Created -> Starting
 	if !c.state.CompareAndSwap(uint32(clientStateCreated), uint32(clientStateStarting)) {
 		state := clientState(c.state.Load())
 		switch state {
@@ -206,7 +168,6 @@ func (c *NaiveClient) Start() error {
 	engine := NewEngine()
 	var startError error
 
-	// Cleanup on failure
 	defer func() {
 		if startError != nil {
 			if c.proxyCancel != nil {
@@ -231,16 +192,13 @@ func (c *NaiveClient) Start() error {
 	proxyContext, proxyCancel := context.WithCancel(c.ctx)
 	c.proxyCancel = proxyCancel
 
-	// Use placeholder address for DNS interception
 	dnsServerAddress := M.ParseSocksaddrHostPort("127.0.0.1", 53)
 	dnsResolver := c.dnsResolver
 
-	// If ServerName differs from ServerAddress, redirect DNS queries
 	if c.serverName != c.serverAddress.AddrString() {
 		dnsResolver = wrapDNSResolverForServerRedirect(dnsResolver, c.serverName, c.serverAddress)
 	}
 
-	// If ECH is enabled, wrap resolver to inject ECH config into HTTPS records
 	if c.echEnabled {
 		echQueryServerName := c.echQueryServerName
 		if echQueryServerName == "" {
@@ -253,7 +211,7 @@ func (c *NaiveClient) Start() error {
 		if address == dnsServerAddress.AddrString() && port == dnsServerAddress.Port {
 			fd, conn, err := createSocketPair()
 			if err != nil {
-				return -104 // ERR_CONNECTION_FAILED
+				return NetErrorConnectionFailed.Code()
 			}
 
 			go func() {
@@ -265,19 +223,9 @@ func (c *NaiveClient) Start() error {
 
 		conn, err := c.dialer.DialContext(proxyContext, N.NetworkTCP, M.ParseSocksaddrHostPort(address, port))
 		if err != nil {
-			return mapDialErrorToNetError(err)
+			return toNetError(err).Code()
 		}
 
-		// Fast path: try to extract FD directly from syscall.Conn.
-		if syscallConn, ok := conn.(syscall.Conn); ok {
-			fd, duplicateError := dupSocketFD(syscallConn)
-			if duplicateError == nil {
-				conn.Close()
-				return fd
-			}
-		}
-
-		// Best-effort unwrap for common wrappers.
 		if tcpConn, ok := N.CastReader[*net.TCPConn](conn); ok {
 			fd, duplicateError := dupSocketFD(tcpConn)
 			if duplicateError == nil {
@@ -286,11 +234,10 @@ func (c *NaiveClient) Start() error {
 			}
 		}
 
-		// Fallback path: create pipe and proxy the connection
 		fd, pipeConn, err := createSocketPair()
 		if err != nil {
 			conn.Close()
-			return -104 // ERR_CONNECTION_FAILED
+			return NetErrorConnectionFailed.Code()
 		}
 
 		c.proxyWaitGroup.Add(1)
@@ -305,11 +252,10 @@ func (c *NaiveClient) Start() error {
 	})
 
 	engine.SetUDPDialer(func(address string, port uint16) (fd int, localAddress string, localPort uint16) {
-		// Intercept DNS traffic to the placeholder address
 		if address == dnsServerAddress.AddrString() && port == dnsServerAddress.Port {
 			fd, conn, err := createPacketSocketPair(c.testForceUDPLoopback)
 			if err != nil {
-				return -104, "", 0 // ERR_CONNECTION_FAILED
+				return NetErrorConnectionFailed.Code(), "", 0
 			}
 
 			go func() {
@@ -321,22 +267,13 @@ func (c *NaiveClient) Start() error {
 
 		conn, err := c.dialer.DialContext(proxyContext, N.NetworkUDP, M.ParseSocksaddrHostPort(address, port))
 		if err != nil {
-			return mapDialErrorToNetError(err), "", 0
+			return toNetError(err).Code(), "", 0
 		}
 
-		// Try to get local address from connection
 		if localAddr := conn.LocalAddr(); localAddr != nil {
 			if udpAddr, ok := localAddr.(*net.UDPAddr); ok {
 				localAddress = udpAddr.IP.String()
 				localPort = uint16(udpAddr.Port)
-			}
-		}
-
-		if syscallConn, ok := conn.(syscall.Conn); ok {
-			fd, duplicateError := dupSocketFD(syscallConn)
-			if duplicateError == nil {
-				conn.Close()
-				return fd, localAddress, localPort
 			}
 		}
 
@@ -348,17 +285,16 @@ func (c *NaiveClient) Start() error {
 			}
 		}
 
-		// Fallback path: create packet socketpair and proxy the connection
 		fd, pipeConn, err := createPacketSocketPair(c.testForceUDPLoopback)
 		if err != nil {
 			conn.Close()
-			return -104, "", 0 // ERR_CONNECTION_FAILED
+			return NetErrorConnectionFailed.Code(), "", 0
 		}
 
 		c.proxyWaitGroup.Add(1)
 		go func() {
 			defer c.proxyWaitGroup.Done()
-			proxyUDPConnection(proxyContext, conn, pipeConn)
+			bufio.CopyConn(proxyContext, conn, pipeConn.(net.Conn))
 			conn.Close()
 			pipeConn.Close()
 		}()
@@ -383,7 +319,6 @@ func (c *NaiveClient) Start() error {
 	}
 
 	if c.echEnabled {
-		// Enable HTTPS/SVCB DNS record lookups for ECH support
 		startError = params.SetUseDnsHttpsSvcb(true)
 		if startError != nil {
 			return startError
@@ -405,7 +340,6 @@ func (c *NaiveClient) Start() error {
 	c.engine = engine
 	c.streamEngine = engine.StreamEngine()
 
-	// Success: Starting -> Running
 	c.state.Store(uint32(clientStateRunning))
 	close(c.started)
 
@@ -420,18 +354,14 @@ func (c *NaiveClient) Engine() Engine {
 }
 
 func (c *NaiveClient) DialEarly(destination M.Socksaddr) (NaiveConn, error) {
-	// Fast path: check state
 	state := clientState(c.state.Load())
 	switch state {
 	case clientStateRunning:
-		// proceed
 	case clientStateClosed, clientStateClosing:
 		return nil, net.ErrClosed
 	default:
-		// Wait for Start() to complete
 		select {
 		case <-c.started:
-			// Recheck state after waking
 			if clientState(c.state.Load()) != clientStateRunning {
 				return nil, net.ErrClosed
 			}
@@ -498,31 +428,26 @@ func (c *NaiveClient) Close() error {
 		state := clientState(c.state.Load())
 		switch state {
 		case clientStateCreated:
-			// Not started - transition directly to Closed
 			if c.state.CompareAndSwap(uint32(clientStateCreated), uint32(clientStateClosed)) {
-				close(c.started) // Unblock any waiting Dial
+				close(c.started)
 				return nil
 			}
-			// CAS failed, retry
 
 		case clientStateStarting:
-			// Wait for Start() to finish, then close
 			select {
 			case <-c.started:
-				continue // Retry with new state
+				continue
 			case <-c.ctx.Done():
 				return c.ctx.Err()
 			}
 
 		case clientStateRunning:
-			// Normal close path
 			if !c.state.CompareAndSwap(uint32(clientStateRunning), uint32(clientStateClosing)) {
-				continue // Retry
+				continue
 			}
 			return c.doClose()
 
 		case clientStateClosing:
-			// Another goroutine is closing - return immediately
 			return nil
 
 		case clientStateClosed:
@@ -565,82 +490,10 @@ func (c *NaiveClient) removeConnection(conn *trackedNaiveConn) {
 	}
 }
 
-// getECHConfigList returns the current ECH config list (thread-safe).
-// This is used internally by the DNS resolver wrapper.
 func (c *NaiveClient) getECHConfigList() []byte {
 	c.echMutex.RLock()
 	defer c.echMutex.RUnlock()
 	return c.echConfigList
-}
-
-// ECHConfigList returns the current ECH config list.
-func (c *NaiveClient) ECHConfigList() []byte {
-	return c.getECHConfigList()
-}
-
-// SetECHConfigList updates the ECH configuration for future connections.
-// The new config will be injected into DNS HTTPS record responses.
-// This is typically called when ECH retry configs are received from the server.
-func (c *NaiveClient) SetECHConfigList(echConfigList []byte) {
-	c.echMutex.Lock()
-	defer c.echMutex.Unlock()
-	c.echConfigList = echConfigList
-}
-
-// mapDialErrorToNetError maps Go dial errors to Chromium net error codes.
-// Returns negative error codes as expected by Chromium.
-func mapDialErrorToNetError(err error) int {
-	if err == nil {
-		return 0
-	}
-
-	if errors.Is(err, context.Canceled) {
-		return -3 // ERR_ABORTED
-	}
-	if errors.Is(err, context.DeadlineExceeded) {
-		return -118 // ERR_CONNECTION_TIMED_OUT
-	}
-
-	var networkError net.Error
-	if errors.As(err, &networkError) && networkError.Timeout() {
-		return -118 // ERR_CONNECTION_TIMED_OUT
-	}
-
-	// Check for syscall errors first
-	var syscallError *os.SyscallError
-	if errors.As(err, &syscallError) {
-		if errno, ok := syscallError.Err.(syscall.Errno); ok {
-			switch errno {
-			case syscall.ECONNREFUSED:
-				return -102 // ERR_CONNECTION_REFUSED
-			case syscall.ETIMEDOUT:
-				return -118 // ERR_CONNECTION_TIMED_OUT
-			case syscall.ENETUNREACH, syscall.EHOSTUNREACH:
-				return -109 // ERR_ADDRESS_UNREACHABLE
-			case syscall.ECONNRESET:
-				return -101 // ERR_CONNECTION_RESET
-			case syscall.ECONNABORTED:
-				return -103 // ERR_CONNECTION_ABORTED
-			}
-		}
-	}
-
-	// Check error message patterns
-	errorMessage := strings.ToLower(err.Error())
-	switch {
-	case strings.Contains(errorMessage, "connection refused"):
-		return -102 // ERR_CONNECTION_REFUSED
-	case strings.Contains(errorMessage, "connection timed out") || strings.Contains(errorMessage, "i/o timeout"):
-		return -118 // ERR_CONNECTION_TIMED_OUT
-	case strings.Contains(errorMessage, "network is unreachable") || strings.Contains(errorMessage, "no route to host"):
-		return -109 // ERR_ADDRESS_UNREACHABLE
-	case strings.Contains(errorMessage, "connection reset"):
-		return -101 // ERR_CONNECTION_RESET
-	case strings.Contains(errorMessage, "connection aborted"):
-		return -103 // ERR_CONNECTION_ABORTED
-	}
-
-	return -104 // ERR_CONNECTION_FAILED (default)
 }
 
 type trackedNaiveConn struct {
@@ -655,87 +508,4 @@ func (c *trackedNaiveConn) Close() error {
 		c.client.activeConnections.Done()
 	})
 	return c.NaiveConn.Close()
-}
-
-// proxyUDPConnection proxies UDP packets between an upstream connection and a pipe (socketpair).
-// The upstream connection is a connected UDP socket (net.Conn), and the pipe is a PacketConn
-// that connects to Chromium via socketpair.
-func proxyUDPConnection(ctx context.Context, upstreamConn net.Conn, pipeConn net.PacketConn) {
-	// Close both connections when context is cancelled.
-	// For datagram socketpairs, closing the peer doesn't unblock ReadFrom.
-	go func() {
-		<-ctx.Done()
-		upstreamConn.Close()
-		pipeConn.Close()
-	}()
-
-	// Determine if pipeConn is a Unix socketpair (use Write instead of WriteTo)
-	var pipeWriter interface{ Write([]byte) (int, error) }
-	if unixConn, ok := pipeConn.(*net.UnixConn); ok {
-		pipeWriter = unixConn
-	}
-
-	// pipe → upstream (Chromium sends data to remote)
-	go func() {
-		buffer := make([]byte, 64*1024)
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
-
-			if deadlineConn, ok := pipeConn.(interface{ SetReadDeadline(time.Time) error }); ok {
-				_ = deadlineConn.SetReadDeadline(time.Now().Add(time.Second))
-			}
-
-			n, _, err := pipeConn.ReadFrom(buffer)
-			if err != nil {
-				if errors.Is(err, net.ErrClosed) {
-					return
-				}
-				if netError := (*net.OpError)(nil); errors.As(err, &netError) && netError.Timeout() {
-					continue
-				}
-				return
-			}
-
-			_, err = upstreamConn.Write(buffer[:n])
-			if err != nil {
-				return
-			}
-		}
-	}()
-
-	// upstream → pipe (remote sends data to Chromium)
-	buffer := make([]byte, 64*1024)
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-
-		if err := upstreamConn.SetReadDeadline(time.Now().Add(time.Second)); err == nil {
-			// deadline set successfully
-		}
-
-		n, err := upstreamConn.Read(buffer)
-		if err != nil {
-			if errors.Is(err, net.ErrClosed) {
-				return
-			}
-			if netError := (*net.OpError)(nil); errors.As(err, &netError) && netError.Timeout() {
-				continue
-			}
-			return
-		}
-
-		// Write to pipe: use Write() for Unix socketpair, WriteTo() for others
-		if pipeWriter != nil {
-			_, _ = pipeWriter.Write(buffer[:n])
-		} else {
-			_, _ = pipeConn.WriteTo(buffer[:n], nil)
-		}
-	}
 }

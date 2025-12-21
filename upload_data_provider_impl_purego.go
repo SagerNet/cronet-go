@@ -48,7 +48,7 @@ func instanceOfUploadDataProvider(self uintptr) UploadDataProviderHandler {
 func onGetLengthCallback(self uintptr) uintptr {
 	handler := instanceOfUploadDataProvider(self)
 	if handler == nil {
-		return 0 // Post-destroy callback, return 0
+		return 0
 	}
 	return uintptr(handler.Length(UploadDataProvider{self}))
 }
@@ -56,7 +56,7 @@ func onGetLengthCallback(self uintptr) uintptr {
 func onReadCallback(self, sink, buffer uintptr) uintptr {
 	handler := instanceOfUploadDataProvider(self)
 	if handler == nil {
-		return 0 // Post-destroy callback, silently ignore
+		return 0
 	}
 	handler.Read(
 		UploadDataProvider{self},
@@ -69,7 +69,7 @@ func onReadCallback(self, sink, buffer uintptr) uintptr {
 func onRewindCallback(self, sink uintptr) uintptr {
 	handler := instanceOfUploadDataProvider(self)
 	if handler == nil {
-		return 0 // Post-destroy callback, silently ignore
+		return 0
 	}
 	handler.Rewind(
 		UploadDataProvider{self},
@@ -81,10 +81,9 @@ func onRewindCallback(self, sink uintptr) uintptr {
 func onCloseCallback(self uintptr) uintptr {
 	handler := instanceOfUploadDataProvider(self)
 	if handler == nil {
-		return 0 // Post-destroy callback, silently ignore
+		return 0
 	}
 	handler.Close(UploadDataProvider{self})
-	// Close is terminal callback - safe to cleanup
 	uploadDataAccess.Lock()
 	delete(uploadDataProviderMap, self)
 	uploadDataAccess.Unlock()

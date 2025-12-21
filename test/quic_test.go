@@ -44,7 +44,7 @@ func TestNaiveQUIC(t *testing.T) {
 	startNaiveQUICServer(t, certPem, keyPem)
 	time.Sleep(time.Second)
 
-	client, err := cronet.NewNaiveClient(cronet.NaiveClientConfig{
+	client, err := cronet.NewNaiveClient(cronet.NaiveClientOptions{
 		ServerAddress:           M.ParseSocksaddrHostPort("127.0.0.1", naiveQUICServerPort),
 		ServerName:              "example.org",
 		Username:                "test",
@@ -82,7 +82,7 @@ func TestNaiveQUICLargeTransfer(t *testing.T) {
 	startNaiveQUICServer(t, certPem, keyPem)
 	time.Sleep(time.Second)
 
-	client, err := cronet.NewNaiveClient(cronet.NaiveClientConfig{
+	client, err := cronet.NewNaiveClient(cronet.NaiveClientOptions{
 		ServerAddress:           M.ParseSocksaddrHostPort("127.0.0.1", naiveQUICServerPort),
 		ServerName:              "example.org",
 		Username:                "test",
