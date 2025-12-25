@@ -4,6 +4,10 @@ TARGET_FLAG = $(if $(TARGET),--target=$(TARGET),)
 build:
 	go run -v ./cmd/build-naive build $(TARGET_FLAG)
 	go run -v ./cmd/build-naive package --local $(TARGET_FLAG)
+	go run -v ./cmd/build-naive package $(TARGET_FLAG)
+
+apple:
+	TARGET="ios/arm64,ios/arm64/simulator,ios/amd64/simulator,tvos/arm64,tvos/arm64/simulator,tvos/amd64/simulator,darwin/arm64,darwin/amd64" make
 
 generate_net_errors:
 	go run ./cmd/build-naive generate-net-errors
