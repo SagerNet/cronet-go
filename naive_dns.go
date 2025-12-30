@@ -16,7 +16,6 @@ package cronet
 import (
 	"context"
 	"encoding/binary"
-	"errors"
 	"io"
 	"net"
 	"net/netip"
@@ -41,32 +40,25 @@ const chromiumDNSUDPMaxSize = 512
 func serveDNSPacketConn(ctx context.Context, conn net.PacketConn, resolver DNSResolverFunc) error {
 	defer conn.Close()
 
-	go func() {
-		<-ctx.Done()
-		conn.Close()
-	}()
+	if ctx.Done() != nil {
+		done := make(chan struct{})
+		defer close(done)
+		go func() {
+			select {
+			case <-ctx.Done():
+				conn.Close()
+			case <-done:
+			}
+		}()
+	}
 
-	buffer := make([]byte, 64*1024)
+	buffer := make([]byte, chromiumDNSUDPMaxSize)
 	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-
-		if deadlineConn, ok := conn.(interface{ SetReadDeadline(time.Time) error }); ok {
-			_ = deadlineConn.SetReadDeadline(time.Now().Add(time.Second))
-		}
+		conn.SetReadDeadline(time.Now().Add(15 * time.Second))
 
 		n, remoteAddress, err := conn.ReadFrom(buffer)
 		if err != nil {
-			if errors.Is(err, net.ErrClosed) {
-				return nil
-			}
-			if netError := (*net.OpError)(nil); errors.As(err, &netError) && netError.Timeout() {
-				continue
-			}
-			continue
+			return err
 		}
 
 		var request mDNS.Msg
@@ -103,25 +95,24 @@ func serveDNSPacketConn(ctx context.Context, conn net.PacketConn, resolver DNSRe
 func serveDNSStreamConn(ctx context.Context, conn net.Conn, resolver DNSResolverFunc) error {
 	defer conn.Close()
 
-	go func() {
-		<-ctx.Done()
-		conn.Close()
-	}()
+	if ctx.Done() != nil {
+		done := make(chan struct{})
+		defer close(done)
+		go func() {
+			select {
+			case <-ctx.Done():
+				conn.Close()
+			case <-done:
+			}
+		}()
+	}
 
 	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
+		conn.SetReadDeadline(time.Now().Add(15 * time.Second))
 
-		_ = conn.SetReadDeadline(time.Now().Add(30 * time.Second))
 		var queryLength uint16
 		err := binary.Read(conn, binary.BigEndian, &queryLength)
 		if err != nil {
-			if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) {
-				return nil
-			}
 			return err
 		}
 		if queryLength == 0 {
@@ -131,9 +122,6 @@ func serveDNSStreamConn(ctx context.Context, conn net.Conn, resolver DNSResolver
 		query := make([]byte, int(queryLength))
 		_, err = io.ReadFull(conn, query)
 		if err != nil {
-			if errors.Is(err, net.ErrClosed) {
-				return nil
-			}
 			return err
 		}
 
