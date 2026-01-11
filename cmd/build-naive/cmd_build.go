@@ -192,7 +192,7 @@ func buildTarget(t Target) {
 		"is_debug=false",
 		"is_clang=true",
 		"use_clang_modules=false",
-		"use_thin_lto=false", // Disable ThinLTO so static lib can be linked with system clang
+		// "use_thin_lto=false", // Disable ThinLTO so static lib can be linked with system clang
 		"fatal_linker_warnings=false",
 		"treat_warnings_as_errors=false",
 		"is_cronet_build=true",
@@ -240,9 +240,9 @@ func buildTarget(t Target) {
 		args = append(args,
 			"use_sysroot=true",
 			fmt.Sprintf("target_sysroot=\"//%s\"", sysrootDirectory),
-			"build_static=true",           // Static linking for musl
-			"use_allocator_shim=false",    // Disable allocator shim for musl compatibility
-			"use_partition_alloc=false",   // Disable PartitionAlloc to avoid GetStackTop() crash on musl
+			"build_static=true",         // Static linking for musl
+			"use_allocator_shim=false",  // Disable allocator shim for musl compatibility
+			"use_partition_alloc=false", // Disable PartitionAlloc to avoid GetStackTop() crash on musl
 		)
 		if t.CPU == "x64" {
 			args = append(args, "use_cfi_icall=false", "is_cfi=false")
