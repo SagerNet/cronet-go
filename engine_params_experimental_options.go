@@ -70,10 +70,7 @@ func (p EngineParams) SetHostResolverRules(rules string) error {
 // contain ECH (Encrypted Client Hello) configurations and ALPN hints.
 // This is required for ECH support.
 func (p EngineParams) SetUseDnsHttpsSvcb(enable bool) error {
-	if !enable {
-		return p.SetExperimentalOption("UseDnsHttpsSvcb", nil)
-	}
 	return p.SetExperimentalOption("UseDnsHttpsSvcb", map[string]any{
-		"enable": true,
+		"enable": enable,
 	})
 }
