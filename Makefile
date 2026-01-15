@@ -12,8 +12,8 @@ apple:
 generate_net_errors:
 	go run ./cmd/build-naive generate-net-errors
 
-test: make
-	go test -v .
+test: build
+	cd test && go test -a -count=1 -v .
 
 fmt:
 	@find . -name '*.go' -not -path './naiveproxy/*' -exec gofumpt -l -w {} +

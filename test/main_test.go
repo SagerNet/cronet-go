@@ -41,7 +41,7 @@ const (
 	forwardPort     = 15201
 )
 
-const naiveServerVersion = "1.12.13"
+const naiveServerVersion = "1.12.16"
 
 func TestMain(m *testing.M) {
 	goleak.VerifyTestMain(m)

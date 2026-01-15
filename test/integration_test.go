@@ -480,8 +480,10 @@ func TestDNSTCFallbackToTCP(t *testing.T) {
 		return response
 	}
 
+	serverAddress := M.ParseSocksaddrHostPort("proxy.invalid", naiveServerPort)
 	client := env.newNaiveClient(t, cronet.NaiveClientOptions{
-		DNSResolver: largeDNSResolver,
+		ServerAddress: serverAddress,
+		DNSResolver:   largeDNSResolver,
 	})
 
 	// Make a connection - this will trigger DNS resolution
@@ -535,7 +537,9 @@ func TestDNSInterceptionUDPLoopbackFallback(t *testing.T) {
 		return response
 	}
 
+	serverAddress := M.ParseSocksaddrHostPort("proxy.invalid", naiveServerPort)
 	client := env.newNaiveClient(t, cronet.NaiveClientOptions{
+		ServerAddress:        serverAddress,
 		DNSResolver:          countingResolver,
 		TestForceUDPLoopback: true, // Force UDP loopback path
 	})
@@ -592,7 +596,9 @@ func TestDNSInterceptionDefaultPath(t *testing.T) {
 		return response
 	}
 
+	serverAddress := M.ParseSocksaddrHostPort("proxy.invalid", naiveServerPort)
 	client := env.newNaiveClient(t, cronet.NaiveClientOptions{
+		ServerAddress:        serverAddress,
 		DNSResolver:          countingResolver,
 		TestForceUDPLoopback: false, // Use default path (Unix SOCK_DGRAM or Windows framed)
 	})
