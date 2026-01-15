@@ -271,6 +271,7 @@ func buildTarget(t Target) {
 			fmt.Sprintf(`target_platform="%s"`, platform),
 			fmt.Sprintf(`target_environment="%s"`, environment),
 			`ios_deployment_target="15.0"`,
+			"enable_built_in_dns=true",
 			// Disable PartitionAlloc for iOS to avoid crashes when embedded in other apps
 			// PartitionAlloc initialization fails when the host app has its own allocator
 			"ios_partition_alloc_enabled=false",
