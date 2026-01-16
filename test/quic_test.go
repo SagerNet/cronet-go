@@ -50,7 +50,7 @@ func TestNaiveQUIC(t *testing.T) {
 		Username:                "test",
 		Password:                "test",
 		TrustedRootCertificates: string(caPemContent),
-		DNSResolver:             localhostDNSResolver(t),
+		DNSResolver:             localhostDNSResolverWithHTTPSResponse(t, naiveQUICServerPort, []string{"h3"}),
 		QUIC:                    true,
 	})
 	require.NoError(t, err)
@@ -88,7 +88,7 @@ func TestNaiveQUICLargeTransfer(t *testing.T) {
 		Username:                "test",
 		Password:                "test",
 		TrustedRootCertificates: string(caPemContent),
-		DNSResolver:             localhostDNSResolver(t),
+		DNSResolver:             localhostDNSResolverWithHTTPSResponse(t, naiveQUICServerPort, []string{"h3"}),
 		QUIC:                    true,
 	})
 	require.NoError(t, err)

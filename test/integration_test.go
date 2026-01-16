@@ -60,6 +60,53 @@ func localhostDNSResolver(t *testing.T) cronet.DNSResolverFunc {
 	}
 }
 
+func localhostDNSResolverWithHTTPSResponse(t *testing.T, servicePort uint16, applicationProtocols []string) cronet.DNSResolverFunc {
+	baseResolver := localhostDNSResolver(t)
+	return func(ctx context.Context, request *mDNS.Msg) *mDNS.Msg {
+		response := baseResolver(ctx, request)
+		if len(request.Question) == 0 {
+			return response
+		}
+		question := request.Question[0]
+		if question.Qtype != mDNS.TypeHTTPS {
+			return response
+		}
+		if response == nil {
+			response = new(mDNS.Msg)
+			response.SetReply(request)
+		}
+		targetName := question.Name
+		if strings.HasPrefix(targetName, "_") {
+			parts := strings.SplitN(targetName, "._https.", 2)
+			if len(parts) == 2 {
+				targetName = parts[1]
+			}
+		}
+		httpsRecord := &mDNS.HTTPS{
+			SVCB: mDNS.SVCB{
+				Hdr: mDNS.RR_Header{
+					Name:   question.Name,
+					Rrtype: mDNS.TypeHTTPS,
+					Class:  mDNS.ClassINET,
+					Ttl:    300,
+				},
+				Priority: 1,
+				Target:   targetName,
+			},
+		}
+		if servicePort != 0 {
+			httpsRecord.Value = append(httpsRecord.Value, &mDNS.SVCBPort{Port: servicePort})
+		}
+		if len(applicationProtocols) > 0 {
+			httpsRecord.Value = append(httpsRecord.Value, &mDNS.SVCBAlpn{Alpn: applicationProtocols})
+		}
+		httpsRecord.Value = append(httpsRecord.Value, &mDNS.SVCBIPv4Hint{Hint: []net.IP{net.ParseIP("127.0.0.1")}})
+		httpsRecord.Value = append(httpsRecord.Value, &mDNS.SVCBIPv6Hint{Hint: []net.IP{net.ParseIP("::1")}})
+		response.Answer = append(response.Answer, httpsRecord)
+		return response
+	}
+}
+
 // wrappedConn wraps a net.Conn but is NOT a *net.TCPConn,
 // forcing the fallback path (socket pair proxy) in NaiveClient.
 type wrappedConn struct {
