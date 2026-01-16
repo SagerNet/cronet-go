@@ -180,6 +180,7 @@ func wrapDNSResolverWithECH(
 	serverName string,
 	echQueryServerName string,
 	echConfigGetter func() []byte,
+	quicEnabled bool,
 ) DNSResolverFunc {
 	return func(ctx context.Context, request *mDNS.Msg) *mDNS.Msg {
 		if len(request.Question) > 0 {
@@ -187,7 +188,13 @@ func wrapDNSResolverWithECH(
 			if question.Qtype == mDNS.TypeHTTPS && matchesServerName(question.Name, serverName) {
 				echConfig := echConfigGetter()
 				if len(echConfig) > 0 {
-					return injectECHConfig(request, nil, echConfig)
+					var alpn []string
+					if quicEnabled {
+						alpn = []string{"h3"}
+					} else {
+						alpn = []string{"h2"}
+					}
+					return injectECHConfig(request, nil, echConfig, alpn)
 				}
 
 				var response *mDNS.Msg
@@ -271,7 +278,7 @@ func matchesServerName(queryName, serverName string) bool {
 	return false
 }
 
-func injectECHConfig(request *mDNS.Msg, response *mDNS.Msg, echConfig []byte) *mDNS.Msg {
+func injectECHConfig(request *mDNS.Msg, response *mDNS.Msg, echConfig []byte, alpn []string) *mDNS.Msg {
 	if response == nil {
 		response = new(mDNS.Msg)
 		response.SetReply(request)
@@ -307,6 +314,7 @@ func injectECHConfig(request *mDNS.Msg, response *mDNS.Msg, echConfig []byte) *m
 				Target:   targetName,
 			},
 		}
+		https.Value = append(https.Value, &mDNS.SVCBAlpn{Alpn: alpn})
 		https.Value = append(https.Value, &mDNS.SVCBECHConfig{ECH: echConfig})
 		response.Answer = append(response.Answer, https)
 	}

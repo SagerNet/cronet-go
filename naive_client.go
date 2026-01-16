@@ -204,7 +204,7 @@ func (c *NaiveClient) Start() error {
 		if echQueryServerName == "" {
 			echQueryServerName = c.serverName
 		}
-		dnsResolver = wrapDNSResolverWithECH(dnsResolver, c.serverName, echQueryServerName, c.getECHConfigList)
+		dnsResolver = wrapDNSResolverWithECH(dnsResolver, c.serverName, echQueryServerName, c.getECHConfigList, c.quicEnabled)
 	}
 
 	engine.SetDialer(func(address string, port uint16) int {
