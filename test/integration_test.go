@@ -721,3 +721,187 @@ func TestNaiveInsecureConcurrencySessionCount(t *testing.T) {
 		"Expected at least 3 HTTP/2 sessions with InsecureConcurrency=3, got %d. NetLog: %s",
 		sessionCount, netLogPath)
 }
+
+// TestServerAddressDomainWithDifferentServerName verifies that when ServerAddress
+// is a domain and ServerName is a different domain, the connection uses ServerAddress's
+// resolved IP, not ServerName's IP.
+//
+// This tests the DNS redirect logic in wrapDNSResolverForServerRedirect.
+func TestServerAddressDomainWithDifferentServerName(t *testing.T) {
+	env := setupTestEnv(t)
+	startEchoServer(t, 18100)
+
+	// Track which domains were queried
+	var queriedDomains sync.Map
+
+	// Create a DNS resolver that returns different IPs for different domains:
+	// - proxy.example.com -> 127.0.0.1 (correct server address)
+	// - example.org -> 10.255.255.1 (unreachable address, used as ServerName for TLS SNI)
+	dnsResolver := func(ctx context.Context, request *mDNS.Msg) *mDNS.Msg {
+		response := new(mDNS.Msg)
+		response.SetReply(request)
+
+		for _, question := range request.Question {
+			name := strings.TrimSuffix(question.Name, ".")
+			t.Logf("DNS query for: %s (type %d)", name, question.Qtype)
+			queriedDomains.Store(name, true)
+
+			var ip net.IP
+			switch {
+			case strings.EqualFold(name, "proxy.example.com"):
+				ip = net.ParseIP("127.0.0.1")
+			case strings.EqualFold(name, "example.org"):
+				// Use an unreachable IP to ensure we detect if wrong IP is used
+				ip = net.ParseIP("10.255.255.1")
+			default:
+				ip = net.ParseIP("127.0.0.1")
+			}
+
+			switch question.Qtype {
+			case mDNS.TypeA:
+				if ip.To4() != nil {
+					t.Logf("Resolving %s to %s", name, ip)
+					response.Answer = append(response.Answer, &mDNS.A{
+						Hdr: mDNS.RR_Header{
+							Name:   question.Name,
+							Rrtype: mDNS.TypeA,
+							Class:  mDNS.ClassINET,
+							Ttl:    300,
+						},
+						A: ip.To4(),
+					})
+				}
+			case mDNS.TypeAAAA:
+				// Return empty for AAAA to force IPv4
+			}
+		}
+		return response
+	}
+
+	// Configure with ServerAddress as domain, ServerName as different domain
+	// ServerName = example.org (matches server certificate CN)
+	// ServerAddress = proxy.example.com (the actual server to connect to)
+	config := cronet.NaiveClientOptions{
+		ServerAddress:           M.ParseSocksaddrHostPort("proxy.example.com", naiveServerPort),
+		ServerName:              "example.org",
+		Username:                "test",
+		Password:                "test",
+		TrustedRootCertificates: string(env.caPEM),
+		DNSResolver:             dnsResolver,
+	}
+
+	client, err := cronet.NewNaiveClient(config)
+	require.NoError(t, err)
+	require.NoError(t, client.Start())
+	t.Cleanup(func() { client.Close() })
+
+	// If DNS redirect works correctly, this should connect to 127.0.0.1 (proxy.example.com)
+	// If DNS redirect fails, it would try to connect to 10.255.255.1 (example.org) and fail
+	conn, err := client.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", 18100))
+	require.NoError(t, err, "Connection failed - DNS redirect may not be working correctly")
+	defer conn.Close()
+
+	// Verify the connection works
+	testData := []byte("DNS redirect test!")
+	_, err = conn.Write(testData)
+	require.NoError(t, err)
+
+	buf := make([]byte, len(testData))
+	_, err = io.ReadFull(conn, buf)
+	require.NoError(t, err)
+	require.Equal(t, testData, buf)
+
+	// Verify that proxy.example.com was queried (DNS redirect worked)
+	_, proxyQueried := queriedDomains.Load("proxy.example.com")
+	require.True(t, proxyQueried, "DNS redirect failed: proxy.example.com was not queried")
+
+	t.Log("DNS redirect test passed: connection used ServerAddress IP, not ServerName IP")
+}
+
+// TestServerAddressDomainWithNXDomainServerName verifies that when ServerAddress
+// is a domain and ServerName returns NXDOMAIN, the connection still works by
+// using ServerAddress's resolved IP.
+//
+// This tests user scenario 5: server=domain(resolvable), tls.server_name=domain(NXDOMAIN)
+func TestServerAddressDomainWithNXDomainServerName(t *testing.T) {
+	env := setupTestEnv(t)
+	startEchoServer(t, 18101)
+
+	// Track which domains were queried
+	var queriedDomains sync.Map
+
+	// Create a DNS resolver:
+	// - proxy.example.com -> 127.0.0.1 (correct server address)
+	// - example.org -> NXDOMAIN (ServerName has no DNS records)
+	dnsResolver := func(ctx context.Context, request *mDNS.Msg) *mDNS.Msg {
+		response := new(mDNS.Msg)
+		response.SetReply(request)
+
+		for _, question := range request.Question {
+			name := strings.TrimSuffix(question.Name, ".")
+			t.Logf("DNS query for: %s (type %d)", name, question.Qtype)
+			queriedDomains.Store(name, true)
+
+			switch {
+			case strings.EqualFold(name, "proxy.example.com"):
+				switch question.Qtype {
+				case mDNS.TypeA:
+					t.Logf("Resolving %s to 127.0.0.1", name)
+					response.Answer = append(response.Answer, &mDNS.A{
+						Hdr: mDNS.RR_Header{
+							Name:   question.Name,
+							Rrtype: mDNS.TypeA,
+							Class:  mDNS.ClassINET,
+							Ttl:    300,
+						},
+						A: net.ParseIP("127.0.0.1").To4(),
+					})
+				}
+			case strings.EqualFold(name, "example.org") ||
+				strings.HasSuffix(strings.ToLower(name), ".example.org"):
+				// Return NXDOMAIN for example.org (simulating empty DNS)
+				t.Logf("Returning NXDOMAIN for %s", name)
+				response.Rcode = mDNS.RcodeNameError
+				return response
+			}
+		}
+		return response
+	}
+
+	// Configure with ServerAddress as domain, ServerName returns NXDOMAIN
+	config := cronet.NaiveClientOptions{
+		ServerAddress:           M.ParseSocksaddrHostPort("proxy.example.com", naiveServerPort),
+		ServerName:              "example.org",
+		Username:                "test",
+		Password:                "test",
+		TrustedRootCertificates: string(env.caPEM),
+		DNSResolver:             dnsResolver,
+	}
+
+	client, err := cronet.NewNaiveClient(config)
+	require.NoError(t, err)
+	require.NoError(t, client.Start())
+	t.Cleanup(func() { client.Close() })
+
+	// If DNS redirect works correctly, this should still connect to 127.0.0.1 (proxy.example.com)
+	// even though example.org returns NXDOMAIN
+	conn, err := client.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", 18101))
+	require.NoError(t, err, "Connection failed - DNS redirect may not be working when ServerName returns NXDOMAIN")
+	defer conn.Close()
+
+	// Verify the connection works
+	testData := []byte("NXDOMAIN redirect test!")
+	_, err = conn.Write(testData)
+	require.NoError(t, err)
+
+	buf := make([]byte, len(testData))
+	_, err = io.ReadFull(conn, buf)
+	require.NoError(t, err)
+	require.Equal(t, testData, buf)
+
+	// Verify that proxy.example.com was queried (DNS redirect worked)
+	_, proxyQueried := queriedDomains.Load("proxy.example.com")
+	require.True(t, proxyQueried, "DNS redirect failed: proxy.example.com was not queried")
+
+	t.Log("NXDOMAIN redirect test passed: connection used ServerAddress IP despite ServerName NXDOMAIN")
+}

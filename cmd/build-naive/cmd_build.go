@@ -240,9 +240,9 @@ func buildTarget(t Target) {
 		args = append(args,
 			"use_sysroot=true",
 			fmt.Sprintf("target_sysroot=\"//%s\"", sysrootDirectory),
-			"build_static=true",           // Static linking for musl
-			"use_allocator_shim=false",    // Disable allocator shim for musl compatibility
-			"use_partition_alloc=false",   // Disable PartitionAlloc to avoid GetStackTop() crash on musl
+			"build_static=true",         // Static linking for musl
+			"use_allocator_shim=false",  // Disable allocator shim for musl compatibility
+			"use_partition_alloc=false", // Disable PartitionAlloc to avoid GetStackTop() crash on musl
 		)
 		if t.CPU == "x64" {
 			args = append(args, "use_cfi_icall=false", "is_cfi=false")

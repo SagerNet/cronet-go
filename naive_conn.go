@@ -11,6 +11,7 @@ import (
 	"github.com/sagernet/sing/common/baderror"
 	"github.com/sagernet/sing/common/buf"
 	E "github.com/sagernet/sing/common/exceptions"
+	"github.com/sagernet/sing/common/logger"
 	"github.com/sagernet/sing/common/rw"
 )
 
@@ -184,33 +185,42 @@ type NaiveConn interface {
 }
 type naiveConn struct {
 	net.Conn
-	conn *BidirectionalConn
+	conn   *BidirectionalConn
+	logger logger.ContextLogger
 	paddingConn
 }
 
-func NewNaiveConn(conn *BidirectionalConn) NaiveConn {
-	return &naiveConn{Conn: conn, conn: conn}
+func NewNaiveConn(conn *BidirectionalConn, l logger.ContextLogger) NaiveConn {
+	return &naiveConn{Conn: conn, conn: conn, logger: l}
 }
 
 func (c *naiveConn) Handshake() error {
 	headers, err := c.conn.WaitForHeaders()
 	if err != nil {
+		c.logger.Warn("handshake failed: ", err)
 		return err
 	}
 	if headers[":status"] != "200" {
-		return E.New("unexpected response status: ", headers[":status"])
+		err = E.New("unexpected response status: ", headers[":status"])
+		c.logger.Warn("handshake failed: ", err)
+		return err
 	}
+	c.logger.Debug("handshake succeeded")
 	return nil
 }
 
 func (c *naiveConn) HandshakeContext(ctx context.Context) error {
 	headers, err := c.conn.WaitForHeadersContext(ctx)
 	if err != nil {
+		c.logger.Warn("handshake failed: ", err)
 		return err
 	}
 	if headers[":status"] != "200" {
-		return E.New("unexpected response status: ", headers[":status"])
+		err = E.New("unexpected response status: ", headers[":status"])
+		c.logger.Warn("handshake failed: ", err)
+		return err
 	}
+	c.logger.Debug("handshake succeeded")
 	return nil
 }
 

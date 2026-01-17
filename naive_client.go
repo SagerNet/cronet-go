@@ -13,6 +13,7 @@ import (
 	"github.com/sagernet/sing/common/bufio"
 	E "github.com/sagernet/sing/common/exceptions"
 	F "github.com/sagernet/sing/common/format"
+	"github.com/sagernet/sing/common/logger"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
 )
@@ -43,6 +44,7 @@ type NaiveClient struct {
 	state                   atomic.Uint32
 	ctx                     context.Context
 	dialer                  N.Dialer
+	logger                  logger.ContextLogger
 	serverAddress           M.Socksaddr
 	serverName              string
 	serverURL               string
@@ -79,6 +81,7 @@ type NaiveClientOptions struct {
 	ExtraHeaders            map[string]string
 	TrustedRootCertificates string
 	DNSResolver             DNSResolverFunc
+	Logger                  logger.ContextLogger
 	Dialer                  N.Dialer
 	ECHEnabled              bool
 	ECHConfigList           []byte
@@ -131,9 +134,15 @@ func NewNaiveClient(config NaiveClientOptions) (*NaiveClient, error) {
 		dialer = N.SystemDialer
 	}
 
+	l := config.Logger
+	if l == nil {
+		l = logger.NOP()
+	}
+
 	return &NaiveClient{
 		ctx:                     ctx,
 		dialer:                  dialer,
+		logger:                  l,
 		serverAddress:           config.ServerAddress,
 		serverName:              serverName,
 		serverURL:               serverURL.String(),
@@ -184,6 +193,7 @@ func (c *NaiveClient) Start() error {
 
 	if c.trustedRootCertificates != "" {
 		if !engine.SetTrustedRootCertificates(c.trustedRootCertificates) {
+			c.logger.Error("failed to set CA certificates")
 			startError = E.New("failed to set trusted CA certificates")
 			return startError
 		}
@@ -204,13 +214,15 @@ func (c *NaiveClient) Start() error {
 		if echQueryServerName == "" {
 			echQueryServerName = c.serverName
 		}
-		dnsResolver = wrapDNSResolverWithECH(dnsResolver, c.serverName, echQueryServerName, c.getECHConfigList, c.quicEnabled)
+		c.logger.Info("ech enabled queryServer=", echQueryServerName)
+		dnsResolver = wrapDNSResolverWithECH(dnsResolver, c.serverName, echQueryServerName, c.getECHConfigList, c.quicEnabled, c.logger)
 	}
 
 	engine.SetDialer(func(address string, port uint16) int {
 		if address == dnsServerAddress.AddrString() && port == dnsServerAddress.Port {
 			fd, conn, err := createSocketPair()
 			if err != nil {
+				c.logger.Error("socket pair failed: ", err)
 				return NetErrorConnectionFailed.Code()
 			}
 
@@ -221,8 +233,10 @@ func (c *NaiveClient) Start() error {
 			return fd
 		}
 
-		conn, err := c.dialer.DialContext(proxyContext, N.NetworkTCP, M.ParseSocksaddrHostPort(address, port))
+		destination := M.ParseSocksaddrHostPort(address, port)
+		conn, err := c.dialer.DialContext(proxyContext, N.NetworkTCP, destination)
 		if err != nil {
+			c.logger.Warn("tcp dial failed address=", destination, " error=", err)
 			return toNetError(err).Code()
 		}
 
@@ -236,6 +250,7 @@ func (c *NaiveClient) Start() error {
 
 		fd, pipeConn, err := createSocketPair()
 		if err != nil {
+			c.logger.Error("socket pair failed: ", err)
 			conn.Close()
 			return NetErrorConnectionFailed.Code()
 		}
@@ -255,6 +270,7 @@ func (c *NaiveClient) Start() error {
 		if address == dnsServerAddress.AddrString() && port == dnsServerAddress.Port {
 			fd, conn, err := createPacketSocketPair(c.testForceUDPLoopback)
 			if err != nil {
+				c.logger.Error("socket pair failed: ", err)
 				return NetErrorConnectionFailed.Code(), "", 0
 			}
 
@@ -265,8 +281,10 @@ func (c *NaiveClient) Start() error {
 			return fd, address, port
 		}
 
-		conn, err := c.dialer.DialContext(proxyContext, N.NetworkUDP, M.ParseSocksaddrHostPort(address, port))
+		destination := M.ParseSocksaddrHostPort(address, port)
+		conn, err := c.dialer.DialContext(proxyContext, N.NetworkUDP, destination)
 		if err != nil {
+			c.logger.Warn("udp dial failed address=", destination, " error=", err)
 			return toNetError(err).Code(), "", 0
 		}
 
@@ -287,6 +305,7 @@ func (c *NaiveClient) Start() error {
 
 		fd, pipeConn, err := createPacketSocketPair(c.testForceUDPLoopback)
 		if err != nil {
+			c.logger.Error("socket pair failed: ", err)
 			conn.Close()
 			return NetErrorConnectionFailed.Code(), "", 0
 		}
@@ -341,6 +360,7 @@ func (c *NaiveClient) Start() error {
 	c.state.Store(uint32(clientStateRunning))
 	close(c.started)
 
+	c.logger.Info("started server=", c.serverAddress, " serverName=", c.serverName, " quic=", c.quicEnabled, " ech=", c.echEnabled)
 	return nil
 }
 
@@ -352,6 +372,7 @@ func (c *NaiveClient) Engine() Engine {
 }
 
 func (c *NaiveClient) DialEarly(destination M.Socksaddr) (NaiveConn, error) {
+	c.logger.Debug("dialing destination=", destination)
 	state := clientState(c.state.Load())
 	switch state {
 	case clientStateRunning:
@@ -385,13 +406,15 @@ func (c *NaiveClient) DialEarly(destination M.Socksaddr) (NaiveConn, error) {
 		concurrencyIndex := int(c.counter.Add(1) % uint64(c.concurrency))
 		headers["-network-isolation-key"] = F.ToString("https://pool-", concurrencyIndex, ":443")
 	}
-	conn := c.streamEngine.CreateConn(true, true)
+	conn := c.streamEngine.CreateConn(c.logger, true, true)
 	err := conn.Start("CONNECT", c.serverURL, headers, 0, false)
 	if err != nil {
+		c.logger.Warn("dial failed destination=", destination, " error=", err)
 		return nil, err
 	}
+	c.logger.Debug("dial succeeded destination=", destination)
 	trackedConn := &trackedNaiveConn{
-		NaiveConn: NewNaiveConn(conn),
+		NaiveConn: NewNaiveConn(conn, c.logger),
 		client:    c,
 	}
 	c.connectionsMutex.Lock()
@@ -443,6 +466,7 @@ func (c *NaiveClient) Close() error {
 			if !c.state.CompareAndSwap(uint32(clientStateRunning), uint32(clientStateClosing)) {
 				continue
 			}
+			c.logger.Debug("closing")
 			return c.doClose()
 
 		case clientStateClosing:
@@ -474,6 +498,7 @@ func (c *NaiveClient) doClose() error {
 	c.engine.Destroy()
 
 	c.state.Store(uint32(clientStateClosed))
+	c.logger.Info("closed")
 	return nil
 }
 

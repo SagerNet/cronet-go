@@ -7,10 +7,13 @@ import (
 	"os"
 	"sync"
 	"time"
+
+	"github.com/sagernet/sing/common/logger"
 )
 
 type BidirectionalConn struct {
 	stream           BidirectionalStream
+	logger           logger.ContextLogger
 	cancelOnce       sync.Once // Ensures Cancel is called at most once
 	destroyOnce      sync.Once // Ensures Destroy is called at most once
 	readWaitHeaders  bool
@@ -34,8 +37,9 @@ type BidirectionalConn struct {
 	writeDoneOnce    sync.Once
 }
 
-func (e StreamEngine) CreateConn(readWaitHeaders bool, writeWaitHeaders bool) *BidirectionalConn {
+func (e StreamEngine) CreateConn(l logger.ContextLogger, readWaitHeaders bool, writeWaitHeaders bool) *BidirectionalConn {
 	conn := &BidirectionalConn{
+		logger:           l,
 		readWaitHeaders:  readWaitHeaders,
 		writeWaitHeaders: writeWaitHeaders,
 		close:            make(chan struct{}),
@@ -323,6 +327,7 @@ func (c *bidirectionalHandler) OnStreamReady(stream BidirectionalStream) {
 
 func (c *bidirectionalHandler) OnResponseHeadersReceived(stream BidirectionalStream, headers map[string]string, negotiatedProtocol string) {
 	c.headers = headers
+	c.logger.Debug("response received protocol=", negotiatedProtocol, " status=", headers[":status"])
 	c.handshakeOnce.Do(func() { close(c.handshake) })
 }
 
@@ -386,6 +391,7 @@ func (c *bidirectionalHandler) OnSucceeded(stream BidirectionalStream) {
 }
 
 func (c *bidirectionalHandler) OnFailed(stream BidirectionalStream, netError int) {
+	c.logger.Warn("stream failed: ", NetError(netError))
 	c.signalReadDone()
 	c.signalWriteDone()
 	c.cancelOnce.Do(func() {})
@@ -393,6 +399,7 @@ func (c *bidirectionalHandler) OnFailed(stream BidirectionalStream, netError int
 }
 
 func (c *bidirectionalHandler) OnCanceled(stream BidirectionalStream) {
+	c.logger.Debug("stream canceled")
 	c.signalReadDone()
 	c.signalWriteDone()
 	c.cancelOnce.Do(func() {})

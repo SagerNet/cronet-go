@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/sagernet/sing/common/bufio"
+	"github.com/sagernet/sing/common/logger"
 	M "github.com/sagernet/sing/common/metadata"
 
 	mDNS "github.com/miekg/dns"
@@ -181,6 +182,7 @@ func wrapDNSResolverWithECH(
 	echQueryServerName string,
 	echConfigGetter func() []byte,
 	quicEnabled bool,
+	l logger.ContextLogger,
 ) DNSResolverFunc {
 	return func(ctx context.Context, request *mDNS.Msg) *mDNS.Msg {
 		if len(request.Question) > 0 {
@@ -194,6 +196,7 @@ func wrapDNSResolverWithECH(
 					} else {
 						alpn = []string{"h2"}
 					}
+					l.DebugContext(ctx, "ech config injected length=", len(echConfig))
 					return injectECHConfig(request, nil, echConfig, alpn)
 				}
 
