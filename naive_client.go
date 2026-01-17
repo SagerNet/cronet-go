@@ -318,11 +318,9 @@ func (c *NaiveClient) Start() error {
 		return startError
 	}
 
-	if c.echEnabled {
-		startError = params.SetUseDnsHttpsSvcb(true)
-		if startError != nil {
-			return startError
-		}
+	startError = params.SetUseDnsHttpsSvcb(c.echEnabled)
+	if startError != nil {
+		return startError
 	}
 
 	if c.quicCongestionControl != "" {
