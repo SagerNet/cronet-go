@@ -19,6 +19,7 @@ import (
 	"io"
 	"net"
 	"net/netip"
+	"strconv"
 	"strings"
 	"time"
 
@@ -287,11 +288,20 @@ func injectECHConfig(request *mDNS.Msg, response *mDNS.Msg, echConfig []byte, al
 		response.SetReply(request)
 	}
 
+	var servicePort uint16
+	var hasServicePort bool
+	if len(request.Question) > 0 {
+		servicePort, hasServicePort = parseHTTPSServicePort(request.Question[0].Name)
+	}
+
 	hasHTTPS := false
 	for _, rr := range response.Answer {
 		if https, ok := rr.(*mDNS.HTTPS); ok {
 			hasHTTPS = true
 			updateECHInSVCB(&https.SVCB, echConfig)
+			if hasServicePort {
+				updatePortInSVCB(&https.SVCB, servicePort)
+			}
 		}
 	}
 
@@ -317,6 +327,9 @@ func injectECHConfig(request *mDNS.Msg, response *mDNS.Msg, echConfig []byte, al
 				Target:   targetName,
 			},
 		}
+		if hasServicePort {
+			https.Value = append(https.Value, &mDNS.SVCBPort{Port: servicePort})
+		}
 		https.Value = append(https.Value, &mDNS.SVCBAlpn{Alpn: alpn})
 		https.Value = append(https.Value, &mDNS.SVCBECHConfig{ECH: echConfig})
 		response.Answer = append(response.Answer, https)
@@ -333,6 +346,32 @@ func updateECHInSVCB(svcb *mDNS.SVCB, echConfig []byte) {
 		}
 	}
 	svcb.Value = append(svcb.Value, &mDNS.SVCBECHConfig{ECH: echConfig})
+}
+
+func updatePortInSVCB(svcb *mDNS.SVCB, port uint16) {
+	for i, kv := range svcb.Value {
+		if _, ok := kv.(*mDNS.SVCBPort); ok {
+			svcb.Value[i] = &mDNS.SVCBPort{Port: port}
+			return
+		}
+	}
+	svcb.Value = append(svcb.Value, &mDNS.SVCBPort{Port: port})
+}
+
+func parseHTTPSServicePort(queryName string) (uint16, bool) {
+	trimmedName := strings.TrimSuffix(queryName, ".")
+	if !strings.HasPrefix(trimmedName, "_") {
+		return 0, false
+	}
+	parts := strings.SplitN(trimmedName, "._https.", 2)
+	if len(parts) != 2 {
+		return 0, false
+	}
+	portValue, err := strconv.Atoi(strings.TrimPrefix(parts[0], "_"))
+	if err != nil || portValue <= 0 || portValue > 65535 {
+		return 0, false
+	}
+	return uint16(portValue), true
 }
 
 func filterIPHintsFromHTTPS(response *mDNS.Msg) {
