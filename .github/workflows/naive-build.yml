@@ -196,6 +196,8 @@ jobs:
 
   windows:
     runs-on: windows-2022
+    env:
+      SCCACHE_ARM64_VERSION: 0.12.0
     strategy:
       fail-fast: false
       matrix:
@@ -225,7 +227,15 @@ jobs:
         if: steps.build-cache.outputs.cache-hit != 'true'
         run: |
           choco install ninja -y
-          choco install sccache -y
+      - name: Install sccache
+        if: steps.build-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          if ("${{ matrix.arch }}" -eq "arm64") {
+            choco install sccache --version=${{ env.SCCACHE_ARM64_VERSION }} -y
+          } else {
+            choco install sccache -y
+          }
       - name: Get sccache version
         if: steps.build-cache.outputs.cache-hit != 'true'
         id: sccache
