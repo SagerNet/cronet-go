@@ -221,17 +221,32 @@ jobs:
         with:
           path: naiveproxy/src/out
           key: naive-build-${{ steps.naive.outputs.commit }}-${{ hashFiles('cmd/build-naive/cmd_build.go', 'cmd/build-naive/cmd.go') }}-windows-${{ matrix.arch }}
+      - name: Install tools
+        if: steps.build-cache.outputs.cache-hit != 'true'
+        run: |
+          choco install ninja -y
+          choco install sccache -y
+      - name: Get sccache version
+        if: steps.build-cache.outputs.cache-hit != 'true'
+        id: sccache
+        shell: pwsh
+        run: |
+          $rawVersion = sccache --version
+          if ($LASTEXITCODE -ne 0) {
+            throw "failed to get sccache version"
+          }
+          $version = ($rawVersion | Select-Object -First 1) -replace '^sccache\s+', ''
+          if ([string]::IsNullOrWhiteSpace($version)) {
+            throw "invalid sccache version output: $rawVersion"
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
       - name: Cache sccache files
         if: steps.build-cache.outputs.cache-hit != 'true'
         uses: actions/cache@v4
         with:
           path: ~/AppData/Local/Mozilla/sccache
-          key: sccache-windows-${{ matrix.arch }}-${{ steps.chromium.outputs.version }}
-          restore-keys: sccache-windows-${{ matrix.arch }}-
-      - name: Install tools
-        if: steps.build-cache.outputs.cache-hit != 'true'
-        run: |
-          choco install ninja sccache
+          key: sccache-windows-${{ matrix.arch }}-${{ steps.sccache.outputs.version }}-${{ steps.chromium.outputs.version }}
+          restore-keys: sccache-windows-${{ matrix.arch }}-${{ steps.sccache.outputs.version }}-
       - name: Reset sccache stats
         if: steps.build-cache.outputs.cache-hit != 'true'
         run: sccache -z
