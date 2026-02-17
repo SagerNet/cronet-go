@@ -74,3 +74,18 @@ func (p EngineParams) SetUseDnsHttpsSvcb(enable bool) error {
 		"enable": enable,
 	})
 }
+
+func (p EngineParams) SetHTTP2Options(sessionMaxReceiveWindowSize, initialWindowSize int) error {
+	return p.SetExperimentalOption("HTTP2Options", map[string]any{
+		"session_max_recv_window_size": sessionMaxReceiveWindowSize,
+		"initial_window_size":          initialWindowSize,
+	})
+}
+
+func (p EngineParams) SetSocketPoolOptions(maxPerPool, maxPerProxyChain, maxPerGroup int) error {
+	return p.SetExperimentalOption("SocketPoolOptions", map[string]any{
+		"max_sockets_per_pool":        maxPerPool,
+		"max_sockets_per_proxy_chain": maxPerProxyChain,
+		"max_sockets_per_group":       maxPerGroup,
+	})
+}

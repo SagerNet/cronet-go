@@ -351,6 +351,18 @@ func (c *NaiveClient) Start() error {
 		}
 	}
 
+	if !c.quicEnabled {
+		startError = params.SetHTTP2Options(134217728, 67108864) // 128 MB session, 64 MB stream
+		if startError != nil {
+			return startError
+		}
+	}
+
+	startError = params.SetSocketPoolOptions(2048, 2048, 2040)
+	if startError != nil {
+		return startError
+	}
+
 	engine.StartWithParams(params)
 	params.Destroy()
 
