@@ -237,7 +237,14 @@ jobs:
         run: sccache -z
       - name: Build
         if: steps.build-cache.outputs.cache-hit != 'true'
-        run: go run ./cmd/build-naive --target=windows/${{ matrix.arch }} build
+        shell: bash
+        run: |
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            # sccache intermittently fails to archive boringssl asm outputs on
+            # windows/arm64 runners.
+            export SCCACHE_DISABLE=1
+          fi
+          go run ./cmd/build-naive --target=windows/${{ matrix.arch }} build
       - name: Show sccache stats
         if: steps.build-cache.outputs.cache-hit != 'true'
         run: sccache -s
