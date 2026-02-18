@@ -72,6 +72,11 @@ func getExtraFlags(t Target) string {
 	return strings.Join(flags, " ")
 }
 
+func envFlagEnabled(name string) bool {
+	value := strings.TrimSpace(strings.ToLower(os.Getenv(name)))
+	return value != "" && value != "0" && value != "false" && value != "no"
+}
+
 type openwrtConfig struct {
 	target    string // OpenWrt target (e.g., "x86", "armsr")
 	subtarget string // OpenWrt subtarget (e.g., "64", "generic")
@@ -279,9 +284,11 @@ func buildTarget(t Target) {
 	}
 
 	if runtime.GOOS == "windows" {
-		sccachePath, _ := exec.LookPath("sccache")
-		if sccachePath != "" {
-			args = append(args, fmt.Sprintf(`cc_wrapper="%s"`, sccachePath))
+		if !envFlagEnabled("SCCACHE_DISABLE") {
+			sccachePath, _ := exec.LookPath("sccache")
+			if sccachePath != "" {
+				args = append(args, fmt.Sprintf(`cc_wrapper="%s"`, sccachePath))
+			}
 		}
 	} else {
 		ccachePath, _ := exec.LookPath("ccache")
