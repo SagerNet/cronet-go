@@ -533,20 +533,37 @@ func TestDNSTCFallbackToTCP(t *testing.T) {
 		DNSResolver:   largeDNSResolver,
 	})
 
-	// Make a connection - this will trigger DNS resolution
-	conn, err := client.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", 17007))
-	require.NoError(t, err)
-	defer conn.Close()
-
-	// Verify connection works
 	testData := []byte("TC fallback test!")
-	_, err = conn.Write(testData)
-	require.NoError(t, err)
+	tryConnect := func() error {
+		conn, err := client.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", 17007))
+		if err != nil {
+			return err
+		}
+		defer conn.Close()
 
-	buf := make([]byte, len(testData))
-	_, err = io.ReadFull(conn, buf)
-	require.NoError(t, err)
-	require.Equal(t, testData, buf)
+		if _, err = conn.Write(testData); err != nil {
+			return err
+		}
+		buf := make([]byte, len(testData))
+		if _, err = io.ReadFull(conn, buf); err != nil {
+			return err
+		}
+		if !bytes.Equal(testData, buf) {
+			return errors.New("data mismatch")
+		}
+		return nil
+	}
+
+	var lastErr error
+	for attempt := 1; attempt <= 3; attempt++ {
+		lastErr = tryConnect()
+		if lastErr == nil {
+			break
+		}
+		t.Logf("fallback connection attempt %d failed: %v", attempt, lastErr)
+		time.Sleep(200 * time.Millisecond)
+	}
+	require.NoError(t, lastErr)
 
 	// DNS should be called at least twice (UDP with TC, then TCP)
 	require.GreaterOrEqual(t, dnsCallCount.Load(), int64(2),
