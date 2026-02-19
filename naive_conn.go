@@ -185,42 +185,43 @@ type NaiveConn interface {
 }
 type naiveConn struct {
 	net.Conn
+	ctx    context.Context
 	conn   *BidirectionalConn
 	logger logger.ContextLogger
 	paddingConn
 }
 
-func NewNaiveConn(conn *BidirectionalConn, l logger.ContextLogger) NaiveConn {
-	return &naiveConn{Conn: conn, conn: conn, logger: l}
+func NewNaiveConn(ctx context.Context, conn *BidirectionalConn, l logger.ContextLogger) NaiveConn {
+	return &naiveConn{Conn: conn, ctx: ctx, conn: conn, logger: l}
 }
 
 func (c *naiveConn) Handshake() error {
 	headers, err := c.conn.WaitForHeaders()
 	if err != nil {
-		c.logger.Warn("handshake failed: ", err)
+		c.logger.WarnContext(c.ctx, "handshake failed: ", err)
 		return err
 	}
 	if headers[":status"] != "200" {
 		err = E.New("unexpected response status: ", headers[":status"])
-		c.logger.Warn("handshake failed: ", err)
+		c.logger.WarnContext(c.ctx, "handshake failed: ", err)
 		return err
 	}
-	c.logger.Debug("handshake succeeded")
+	c.logger.DebugContext(c.ctx, "handshake succeeded")
 	return nil
 }
 
 func (c *naiveConn) HandshakeContext(ctx context.Context) error {
 	headers, err := c.conn.WaitForHeadersContext(ctx)
 	if err != nil {
-		c.logger.Warn("handshake failed: ", err)
+		c.logger.WarnContext(c.ctx, "handshake failed: ", err)
 		return err
 	}
 	if headers[":status"] != "200" {
 		err = E.New("unexpected response status: ", headers[":status"])
-		c.logger.Warn("handshake failed: ", err)
+		c.logger.WarnContext(c.ctx, "handshake failed: ", err)
 		return err
 	}
-	c.logger.Debug("handshake succeeded")
+	c.logger.DebugContext(c.ctx, "handshake succeeded")
 	return nil
 }
 

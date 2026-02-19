@@ -193,7 +193,6 @@ func (c *NaiveClient) Start() error {
 
 	if c.trustedRootCertificates != "" {
 		if !engine.SetTrustedRootCertificates(c.trustedRootCertificates) {
-			c.logger.Error("failed to set CA certificates")
 			startError = E.New("failed to set trusted CA certificates")
 			return startError
 		}
@@ -214,7 +213,6 @@ func (c *NaiveClient) Start() error {
 		if echQueryServerName == "" {
 			echQueryServerName = c.serverName
 		}
-		c.logger.Info("ech enabled queryServer=", echQueryServerName)
 		dnsResolver = wrapDNSResolverWithECH(dnsResolver, c.serverName, echQueryServerName, c.getECHConfigList, c.quicEnabled, c.logger)
 	}
 
@@ -222,7 +220,7 @@ func (c *NaiveClient) Start() error {
 		if address == dnsServerAddress.AddrString() && port == dnsServerAddress.Port {
 			fd, conn, err := createSocketPair()
 			if err != nil {
-				c.logger.Error("socket pair failed: ", err)
+				c.logger.ErrorContext(c.ctx, "socket pair failed: ", err)
 				return NetErrorConnectionFailed.Code()
 			}
 
@@ -234,9 +232,10 @@ func (c *NaiveClient) Start() error {
 		}
 
 		destination := M.ParseSocksaddrHostPort(address, port)
+		c.logger.DebugContext(c.ctx, "open TCP connection to ", destination)
 		conn, err := c.dialer.DialContext(proxyContext, N.NetworkTCP, destination)
 		if err != nil {
-			c.logger.Warn("tcp dial failed address=", destination, " error=", err)
+			c.logger.ErrorContext(c.ctx, "open TCP connection to ", destination, ": ", err)
 			return toNetError(err).Code()
 		}
 
@@ -250,7 +249,7 @@ func (c *NaiveClient) Start() error {
 
 		fd, pipeConn, err := createSocketPair()
 		if err != nil {
-			c.logger.Error("socket pair failed: ", err)
+			c.logger.ErrorContext(c.ctx, "socket pair failed: ", err)
 			conn.Close()
 			return NetErrorConnectionFailed.Code()
 		}
@@ -270,7 +269,7 @@ func (c *NaiveClient) Start() error {
 		if address == dnsServerAddress.AddrString() && port == dnsServerAddress.Port {
 			fd, conn, err := createPacketSocketPair(c.testForceUDPLoopback)
 			if err != nil {
-				c.logger.Error("socket pair failed: ", err)
+				c.logger.ErrorContext(c.ctx, "socket pair failed: ", err)
 				return NetErrorConnectionFailed.Code(), "", 0
 			}
 
@@ -282,9 +281,10 @@ func (c *NaiveClient) Start() error {
 		}
 
 		destination := M.ParseSocksaddrHostPort(address, port)
+		c.logger.DebugContext(c.ctx, "open UDP connection to ", destination)
 		conn, err := c.dialer.DialContext(proxyContext, N.NetworkUDP, destination)
 		if err != nil {
-			c.logger.Warn("udp dial failed address=", destination, " error=", err)
+			c.logger.ErrorContext(c.ctx, "open UDP connection to ", destination, ": ", err)
 			return toNetError(err).Code(), "", 0
 		}
 
@@ -305,7 +305,7 @@ func (c *NaiveClient) Start() error {
 
 		fd, pipeConn, err := createPacketSocketPair(c.testForceUDPLoopback)
 		if err != nil {
-			c.logger.Error("socket pair failed: ", err)
+			c.logger.ErrorContext(c.ctx, "socket pair failed: ", err)
 			conn.Close()
 			return NetErrorConnectionFailed.Code(), "", 0
 		}
@@ -371,8 +371,6 @@ func (c *NaiveClient) Start() error {
 
 	c.state.Store(uint32(clientStateRunning))
 	close(c.started)
-
-	c.logger.Info("started server=", c.serverAddress, " serverName=", c.serverName, " quic=", c.quicEnabled, " ech=", c.echEnabled)
 	return nil
 }
 
@@ -383,8 +381,7 @@ func (c *NaiveClient) Engine() Engine {
 	return c.engine
 }
 
-func (c *NaiveClient) DialEarly(destination M.Socksaddr) (NaiveConn, error) {
-	c.logger.Debug("dialing destination=", destination)
+func (c *NaiveClient) DialEarly(ctx context.Context, destination M.Socksaddr) (NaiveConn, error) {
 	state := clientState(c.state.Load())
 	switch state {
 	case clientStateRunning:
@@ -418,15 +415,13 @@ func (c *NaiveClient) DialEarly(destination M.Socksaddr) (NaiveConn, error) {
 		concurrencyIndex := int(c.counter.Add(1) % uint64(c.concurrency))
 		headers["-network-isolation-key"] = F.ToString("https://pool-", concurrencyIndex, ":443")
 	}
-	conn := c.streamEngine.CreateConn(c.logger, true, true)
+	conn := c.streamEngine.CreateConn(ctx, c.logger, true, true)
 	err := conn.Start("CONNECT", c.serverURL, headers, 0, false)
 	if err != nil {
-		c.logger.Warn("dial failed destination=", destination, " error=", err)
 		return nil, err
 	}
-	c.logger.Debug("dial succeeded destination=", destination)
 	trackedConn := &trackedNaiveConn{
-		NaiveConn: NewNaiveConn(conn, c.logger),
+		NaiveConn: NewNaiveConn(ctx, conn, c.logger),
 		client:    c,
 	}
 	c.connectionsMutex.Lock()
@@ -440,7 +435,7 @@ func (c *NaiveClient) DialContext(ctx context.Context, network string, destinati
 	if N.NetworkName(network) != N.NetworkTCP {
 		return nil, os.ErrInvalid
 	}
-	conn, err := c.DialEarly(destination)
+	conn, err := c.DialEarly(ctx, destination)
 	if err != nil {
 		return nil, err
 	}
@@ -478,7 +473,6 @@ func (c *NaiveClient) Close() error {
 			if !c.state.CompareAndSwap(uint32(clientStateRunning), uint32(clientStateClosing)) {
 				continue
 			}
-			c.logger.Debug("closing")
 			return c.doClose()
 
 		case clientStateClosing:
@@ -510,7 +504,6 @@ func (c *NaiveClient) doClose() error {
 	c.engine.Destroy()
 
 	c.state.Store(uint32(clientStateClosed))
-	c.logger.Info("closed")
 	return nil
 }
 

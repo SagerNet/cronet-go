@@ -197,7 +197,7 @@ func wrapDNSResolverWithECH(
 					} else {
 						alpn = []string{"h2"}
 					}
-					l.DebugContext(ctx, "ech config injected length=", len(echConfig))
+					l.DebugContext(ctx, "ech config injected, length: ", len(echConfig))
 					return injectECHConfig(request, nil, echConfig, alpn)
 				}
 
