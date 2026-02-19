@@ -115,6 +115,15 @@ func getOpenwrtConfig(t Target) openwrtConfig {
 			release:   "23.05.5",
 			gccVer:    "12.3.0",
 		}
+	case "loong64":
+		// OpenWrt 24.10.0 is the first release with loongarch64 support
+		return openwrtConfig{
+			target:    "loongarch64",
+			subtarget: "generic",
+			arch:      "loongarch64",
+			release:   "24.10.5",
+			gccVer:    "13.3.0",
+		}
 	default:
 		log.Fatalf("unsupported CPU for musl: %s", t.CPU)
 		return openwrtConfig{}
@@ -149,7 +158,7 @@ func runGetClang(t Target) {
 			log.Fatalf("get-clang.sh (host) failed: %v", err)
 		}
 
-		hostSysrootSource := filepath.Join(srcRoot, "out/sysroot-build/bullseye/bullseye_amd64_staging")
+		hostSysrootSource := getSysrootPath(Target{CPU: hostCPU})
 		hostSysrootDestination := filepath.Join(srcRoot, "build/linux/debian_bullseye_amd64-sysroot")
 		if _, err := os.Stat(hostSysrootDestination); os.IsNotExist(err) {
 			log.Printf("Creating symlink for host sysroot: %s -> %s", hostSysrootDestination, hostSysrootSource)
@@ -223,13 +232,8 @@ func buildTarget(t Target) {
 		args = append(args, "use_sysroot=false")
 	case "linux":
 		// Sysroot is handled by get-clang.sh, use the naiveproxy path
-		sysrootArch := map[string]string{
-			"x64":   "amd64",
-			"arm64": "arm64",
-			"x86":   "i386",
-			"arm":   "armhf",
-		}[t.CPU]
-		sysrootDirectory := fmt.Sprintf("out/sysroot-build/bullseye/bullseye_%s_staging", sysrootArch)
+		sysrootPath := getSysrootPath(t)
+		sysrootDirectory := strings.TrimPrefix(sysrootPath, srcRoot+string(filepath.Separator))
 		args = append(args, "use_sysroot=true", fmt.Sprintf("target_sysroot=\"//%s\"", sysrootDirectory))
 		if t.CPU == "x64" {
 			args = append(args, "use_cfi_icall=false", "is_cfi=false")

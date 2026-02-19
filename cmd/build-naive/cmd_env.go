@@ -40,6 +40,8 @@ func getClangTarget(t Target) string {
 			return "i486-openwrt-linux-musl"
 		case "arm":
 			return "arm-openwrt-linux-musleabi"
+		case "loong64":
+			return "loongarch64-openwrt-linux-musl"
 		}
 	}
 	switch t.CPU {
@@ -51,6 +53,8 @@ func getClangTarget(t Target) string {
 		return "i686-linux-gnu"
 	case "arm":
 		return "arm-linux-gnueabihf"
+	case "loong64":
+		return "loongarch64-linux-gnu"
 	}
 	return ""
 }
@@ -60,13 +64,14 @@ func getSysrootPath(t Target) string {
 		config := getOpenwrtConfig(t)
 		return filepath.Join(srcRoot, "out/sysroot-build/openwrt", config.release, config.arch)
 	}
-	sysrootArch := map[string]string{
-		"x64":   "amd64",
-		"arm64": "arm64",
-		"x86":   "i386",
-		"arm":   "armhf",
+	sysrootInfo := map[string]struct{ arch, release string }{
+		"x64":     {"amd64", "bullseye"},
+		"arm64":   {"arm64", "bullseye"},
+		"x86":     {"i386", "bullseye"},
+		"arm":     {"armhf", "bullseye"},
+		"loong64": {"loong64", "sid"},
 	}[t.CPU]
-	return filepath.Join(srcRoot, "out/sysroot-build/bullseye", "bullseye_"+sysrootArch+"_staging")
+	return filepath.Join(srcRoot, "out/sysroot-build", sysrootInfo.release, sysrootInfo.release+"_"+sysrootInfo.arch+"_staging")
 }
 
 func printEnv(t Target) {
@@ -84,8 +89,8 @@ func printEnv(t Target) {
 	if t.GOOS == "linux" {
 		var ldFlags []string
 		ldFlags = append(ldFlags, "-fuse-ld=lld")
-		if t.ARCH == "386" || t.ARCH == "arm" {
-			ldFlags = append(ldFlags, "-no-pie")
+		if t.ARCH == "386" || t.ARCH == "arm" || t.ARCH == "loong64" {
+			ldFlags = append(ldFlags, "-Wl,-no-pie")
 		}
 		fmt.Printf("%sCGO_LDFLAGS=%s\n", prefix, shellQuote(strings.Join(ldFlags, " "), envExport))
 	}

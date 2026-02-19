@@ -29,6 +29,7 @@ var allTargets = []Target{
 	{OS: "linux", CPU: "arm64", GOOS: "linux", ARCH: "arm64"},
 	{OS: "linux", CPU: "x86", GOOS: "linux", ARCH: "386"},
 	{OS: "linux", CPU: "arm", GOOS: "linux", ARCH: "arm"},
+	{OS: "linux", CPU: "loong64", GOOS: "linux", ARCH: "loong64"},
 	{OS: "mac", CPU: "x64", GOOS: "darwin", ARCH: "amd64"},
 	{OS: "mac", CPU: "arm64", GOOS: "darwin", ARCH: "arm64"},
 	{OS: "win", CPU: "x64", GOOS: "windows", ARCH: "amd64"},
@@ -206,6 +207,8 @@ func hostToCPU(goarch string) string {
 		return "x86"
 	case "arm":
 		return "arm"
+	case "loong64":
+		return "loong64"
 	default:
 		return goarch
 	}
