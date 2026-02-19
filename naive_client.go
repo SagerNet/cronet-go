@@ -66,7 +66,7 @@ type NaiveClient struct {
 	streamEngine            StreamEngine
 	activeConnections       sync.WaitGroup
 	connectionsMutex        sync.Mutex
-	connections             []*trackedNaiveConn
+	connections             map[*trackedNaiveConn]struct{}
 	proxyWaitGroup          sync.WaitGroup
 	proxyCancel             context.CancelFunc
 }
@@ -157,6 +157,7 @@ func NewNaiveClient(config NaiveClientOptions) (*NaiveClient, error) {
 		quicEnabled:             config.QUIC,
 		quicCongestionControl:   config.QUICCongestionControl,
 		concurrency:             concurrency,
+		connections:             make(map[*trackedNaiveConn]struct{}),
 		started:                 make(chan struct{}),
 	}, nil
 }
@@ -425,7 +426,7 @@ func (c *NaiveClient) DialEarly(ctx context.Context, destination M.Socksaddr) (N
 		client:    c,
 	}
 	c.connectionsMutex.Lock()
-	c.connections = append(c.connections, trackedConn)
+	c.connections[trackedConn] = struct{}{}
 	c.connectionsMutex.Unlock()
 	c.activeConnections.Add(1)
 	return trackedConn, nil
@@ -490,8 +491,10 @@ func (c *NaiveClient) doClose() error {
 	}
 
 	c.connectionsMutex.Lock()
-	connections := make([]*trackedNaiveConn, len(c.connections))
-	copy(connections, c.connections)
+	connections := make([]*trackedNaiveConn, 0, len(c.connections))
+	for conn := range c.connections {
+		connections = append(connections, conn)
+	}
 	c.connectionsMutex.Unlock()
 
 	for _, conn := range connections {
@@ -509,13 +512,8 @@ func (c *NaiveClient) doClose() error {
 
 func (c *NaiveClient) removeConnection(conn *trackedNaiveConn) {
 	c.connectionsMutex.Lock()
-	defer c.connectionsMutex.Unlock()
-	for index, trackedConn := range c.connections {
-		if trackedConn == conn {
-			c.connections = append(c.connections[:index], c.connections[index+1:]...)
-			return
-		}
-	}
+	delete(c.connections, conn)
+	c.connectionsMutex.Unlock()
 }
 
 func (c *NaiveClient) getECHConfigList() []byte {
