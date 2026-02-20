@@ -42,6 +42,10 @@ func getClangTarget(t Target) string {
 			return "arm-openwrt-linux-musleabi"
 		case "loong64":
 			return "loongarch64-openwrt-linux-musl"
+		case "mipsel":
+			return "mipsel-openwrt-linux-musl"
+		case "riscv64":
+			return "riscv64-openwrt-linux-musl"
 		}
 	}
 	switch t.CPU {
@@ -55,6 +59,12 @@ func getClangTarget(t Target) string {
 		return "arm-linux-gnueabihf"
 	case "loong64":
 		return "loongarch64-linux-gnu"
+	case "mipsel":
+		return "mipsel-linux-gnu"
+	case "mips64el":
+		return "mips64el-linux-gnuabi64"
+	case "riscv64":
+		return "riscv64-linux-gnu"
 	}
 	return ""
 }
@@ -65,11 +75,14 @@ func getSysrootPath(t Target) string {
 		return filepath.Join(srcRoot, "out/sysroot-build/openwrt", config.release, config.arch)
 	}
 	sysrootInfo := map[string]struct{ arch, release string }{
-		"x64":     {"amd64", "bullseye"},
-		"arm64":   {"arm64", "bullseye"},
-		"x86":     {"i386", "bullseye"},
-		"arm":     {"armhf", "bullseye"},
-		"loong64": {"loong64", "sid"},
+		"x64":      {"amd64", "bullseye"},
+		"arm64":    {"arm64", "bullseye"},
+		"x86":      {"i386", "bullseye"},
+		"arm":      {"armhf", "bullseye"},
+		"loong64":  {"loong64", "sid"},
+		"mipsel":   {"mipsel", "bullseye"},
+		"mips64el": {"mips64el", "bullseye"},
+		"riscv64":  {"riscv64", "trixie"},
 	}[t.CPU]
 	return filepath.Join(srcRoot, "out/sysroot-build", sysrootInfo.release, sysrootInfo.release+"_"+sysrootInfo.arch+"_staging")
 }
@@ -89,8 +102,12 @@ func printEnv(t Target) {
 	if t.GOOS == "linux" {
 		var ldFlags []string
 		ldFlags = append(ldFlags, "-fuse-ld=lld")
-		if t.ARCH == "386" || t.ARCH == "arm" || t.ARCH == "loong64" {
+		if t.ARCH == "386" || t.ARCH == "arm" || t.ARCH == "loong64" || t.ARCH == "mipsle" || t.ARCH == "mips64le" {
 			ldFlags = append(ldFlags, "-Wl,-no-pie")
+		}
+		// Bullseye glibc CRT for MIPS marks GNU_STACK as executable; lld rejects by default
+		if (t.ARCH == "mipsle" || t.ARCH == "mips64le") && t.Libc != "musl" {
+			ldFlags = append(ldFlags, "-Wl,-z,execstack")
 		}
 		fmt.Printf("%sCGO_LDFLAGS=%s\n", prefix, shellQuote(strings.Join(ldFlags, " "), envExport))
 	}

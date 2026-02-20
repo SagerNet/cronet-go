@@ -22,7 +22,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [amd64, arm64, "386", arm, loong64]
+        arch: [amd64, arm64, "386", arm, loong64, mipsle, mips64le, riscv64]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -78,6 +78,7 @@ jobs:
             naiveproxy/src/third_party/llvm-build
             naiveproxy/src/gn/out
             naiveproxy/src/chrome/build/pgo_profiles
+            naiveproxy/src/out/sysroot-build
           key: toolchain-linux-${{ matrix.arch }}-${{ steps.chromium.outputs.version }}
           restore-keys: toolchain-linux-${{ matrix.arch }}-
       - name: Download clang and sysroot
@@ -89,7 +90,11 @@ jobs:
       - name: Build test binary
         run: |
           eval $(go run ./cmd/build-naive --target=linux/${{ matrix.arch }} env --export)
-          CGO_ENABLED=1 GOOS=linux GOARCH=${{ matrix.arch }} go test -c -o cronet.test .
+          GO_TEST_LDFLAGS=
+          if [ "${{ matrix.arch }}" = "mipsle" ] || [ "${{ matrix.arch }}" = "mips64le" ]; then
+            GO_TEST_LDFLAGS=-ldflags=-w
+          fi
+          CGO_ENABLED=1 GOOS=linux GOARCH=${{ matrix.arch }} go test -c $GO_TEST_LDFLAGS -o cronet.test .
       - name: Run test binary
         run: |
           eval $(go run ./cmd/build-naive --target=linux/${{ matrix.arch }} env --export)
@@ -371,7 +376,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [amd64, arm64, "386", arm, loong64]
+        arch: [amd64, arm64, "386", arm, loong64, mipsle, riscv64]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -423,6 +428,7 @@ jobs:
             naiveproxy/src/third_party/llvm-build
             naiveproxy/src/gn/out
             naiveproxy/src/chrome/build/pgo_profiles
+            naiveproxy/src/out/sysroot-build
           key: toolchain-linux-musl-${{ matrix.arch }}-${{ steps.chromium.outputs.version }}
           restore-keys: toolchain-linux-musl-${{ matrix.arch }}-
       - name: Download toolchain
@@ -434,7 +440,10 @@ jobs:
       - name: Build test binary
         run: |
           eval $(go run ./cmd/build-naive --target=linux/${{ matrix.arch }} --libc=musl env --export)
-          CGO_ENABLED=1 GOOS=linux GOARCH=${{ matrix.arch }} go test -c -tags with_musl -o cronet.test .
+          [[ "${{ matrix.arch }}" == "mipsle" ]] && export GOMIPS=softfloat || true
+          GO_TEST_LDFLAGS=
+          [[ "${{ matrix.arch }}" == "mipsle" ]] && GO_TEST_LDFLAGS=-ldflags=-w || true
+          CGO_ENABLED=1 GOOS=linux GOARCH=${{ matrix.arch }} go test -c $GO_TEST_LDFLAGS -tags with_musl -o cronet.test .
       - name: Run test binary
         continue-on-error: true  # musl/QEMU test is flaky, don't block CI
         run: |
@@ -554,6 +563,7 @@ jobs:
             naiveproxy/src/third_party/llvm-build
             naiveproxy/src/gn/out
             naiveproxy/src/chrome/build/pgo_profiles
+            naiveproxy/src/out/sysroot-build
           key: toolchain-linux-${{ contains(matrix.target, 'arm64') && 'arm64' || 'amd64' }}-${{ steps.chromium.outputs.version }}
           restore-keys: toolchain-linux-${{ contains(matrix.target, 'arm64') && 'arm64' || 'amd64' }}-
 

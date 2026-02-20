@@ -66,7 +66,9 @@ go build
 ### Directories to cache
 
 ```yaml
-- cronet-go/naiveproxy/src/third_party/llvm-build/Release+Asserts/
+- cronet-go/naiveproxy/src/third_party/llvm-build/
+- cronet-go/naiveproxy/src/gn/out/
+- cronet-go/naiveproxy/src/chrome/build/pgo_profiles/
 - cronet-go/naiveproxy/src/out/sysroot-build/
 ```
 

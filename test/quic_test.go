@@ -110,7 +110,7 @@ func TestNaiveQUIC(t *testing.T) {
 
 	startEchoServer(t, 18200)
 
-	conn, err := client.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", 18200))
+	conn, err := client.DialEarly(context.Background(), M.ParseSocksaddrHostPort("127.0.0.1", 18200))
 	require.NoError(t, err)
 	defer conn.Close()
 
@@ -148,7 +148,7 @@ func TestNaiveQUICLargeTransfer(t *testing.T) {
 
 	startEchoServer(t, 18201)
 
-	conn, err := client.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", 18201))
+	conn, err := client.DialEarly(context.Background(), M.ParseSocksaddrHostPort("127.0.0.1", 18201))
 	require.NoError(t, err)
 	defer conn.Close()
 
@@ -204,7 +204,7 @@ func TestNaiveQUICDomainNon443DoesNotIssueHTTPSDNSQueryByDefault(t *testing.T) {
 
 	startEchoServer(t, 18202)
 
-	conn, err := client.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", 18202))
+	conn, err := client.DialEarly(context.Background(), M.ParseSocksaddrHostPort("127.0.0.1", 18202))
 	require.NoError(t, err)
 	defer conn.Close()
 
@@ -254,7 +254,7 @@ func TestNaiveQUICDomainNon443ECHHTTPSDNSDelayAffectsHandshake(t *testing.T) {
 
 	startEchoServer(t, 18203)
 
-	conn, err := client.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", 18203))
+	conn, err := client.DialEarly(context.Background(), M.ParseSocksaddrHostPort("127.0.0.1", 18203))
 	require.NoError(t, err)
 	defer conn.Close()
 
@@ -316,7 +316,7 @@ func TestNaiveQUICDomainNon443ECHFixedConfigDisablesHTTPSLookup(t *testing.T) {
 
 	startEchoServer(t, 18205)
 
-	conn, err := client.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", 18205))
+	conn, err := client.DialEarly(context.Background(), M.ParseSocksaddrHostPort("127.0.0.1", 18205))
 	require.NoError(t, err)
 	defer conn.Close()
 
@@ -368,7 +368,7 @@ func TestNaiveQUICFixedIPSkipsServerDNSQueries(t *testing.T) {
 
 	startEchoServer(t, 18204)
 
-	conn, err := client.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", 18204))
+	conn, err := client.DialEarly(context.Background(), M.ParseSocksaddrHostPort("127.0.0.1", 18204))
 	require.NoError(t, err)
 	defer conn.Close()
 

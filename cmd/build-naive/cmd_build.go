@@ -73,11 +73,12 @@ func getExtraFlags(t Target) string {
 }
 
 type openwrtConfig struct {
-	target    string // OpenWrt target (e.g., "x86", "armsr")
-	subtarget string // OpenWrt subtarget (e.g., "64", "generic")
-	arch      string // OpenWrt arch (e.g., "x86_64", "aarch64")
-	release   string // OpenWrt release version
-	gccVer    string // GCC version in SDK
+	target      string // OpenWrt target (e.g., "x86", "armsr")
+	subtarget   string // OpenWrt subtarget (e.g., "64", "generic")
+	arch        string // OpenWrt arch (e.g., "x86_64", "aarch64")
+	release     string // OpenWrt release version
+	gccVer      string // GCC version in SDK
+	extraGNArgs []string // additional GN args passed to buildTarget
 }
 
 func getOpenwrtConfig(t Target) openwrtConfig {
@@ -123,6 +124,24 @@ func getOpenwrtConfig(t Target) openwrtConfig {
 			arch:      "loongarch64",
 			release:   "24.10.5",
 			gccVer:    "13.3.0",
+		}
+	case "mipsel":
+		// mipsel_24kc is MIPS32R2 with no hardware FPU (software float)
+		return openwrtConfig{
+			target:      "ramips",
+			subtarget:   "rt305x",
+			arch:        "mipsel_24kc",
+			release:     "23.05.5",
+			gccVer:      "12.3.0",
+			extraGNArgs: []string{`mips_float_abi="soft"`, `mips_arch_variant="r2"`},
+		}
+	case "riscv64":
+		return openwrtConfig{
+			target:    "sifiveu",
+			subtarget: "generic",
+			arch:      "riscv64",
+			release:   "23.05.5",
+			gccVer:    "12.3.0",
 		}
 	default:
 		log.Fatalf("unsupported CPU for musl: %s", t.CPU)
@@ -248,6 +267,7 @@ func buildTarget(t Target) {
 			"use_allocator_shim=false",  // Disable allocator shim for musl compatibility
 			"use_partition_alloc=false", // Disable PartitionAlloc to avoid GetStackTop() crash on musl
 		)
+		args = append(args, config.extraGNArgs...)
 		if t.CPU == "x64" {
 			args = append(args, "use_cfi_icall=false", "is_cfi=false")
 		}

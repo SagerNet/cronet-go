@@ -1,6 +1,7 @@
 package test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -32,7 +33,7 @@ func TestHTTP2Options(t *testing.T) {
 	require.True(t, client.Engine().StartNetLogToFile(netLogPath, true),
 		"Failed to start NetLog")
 
-	conn, err := client.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", 18100))
+	conn, err := client.DialEarly(context.Background(), M.ParseSocksaddrHostPort("127.0.0.1", 18100))
 	require.NoError(t, err)
 
 	testData := []byte("hello")

@@ -1,4 +1,4 @@
-//go:build with_purego && !386 && !arm
+//go:build with_purego && !386 && !arm && !mipsle
 
 package cronet
 

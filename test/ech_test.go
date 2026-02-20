@@ -111,7 +111,7 @@ func TestNaiveECH(t *testing.T) {
 	defer client.Engine().StopNetLog()
 
 	// Make a connection
-	conn, err := client.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", echEchoPort))
+	conn, err := client.DialEarly(context.Background(), M.ParseSocksaddrHostPort("127.0.0.1", echEchoPort))
 	require.NoError(t, err)
 	defer conn.Close()
 

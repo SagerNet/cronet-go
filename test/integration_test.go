@@ -172,7 +172,7 @@ func TestNaiveCustomDialer(t *testing.T) {
 	})
 
 	// Make a connection
-	conn, err := client.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", 17000))
+	conn, err := client.DialEarly(context.Background(), M.ParseSocksaddrHostPort("127.0.0.1", 17000))
 	require.NoError(t, err)
 	defer conn.Close()
 
@@ -207,7 +207,7 @@ func TestNaivePipeProxy(t *testing.T) {
 	})
 
 	// Make a connection through the proxy path
-	conn, err := client.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", 17001))
+	conn, err := client.DialEarly(context.Background(), M.ParseSocksaddrHostPort("127.0.0.1", 17001))
 	require.NoError(t, err)
 	defer conn.Close()
 
@@ -254,7 +254,7 @@ func TestNaiveDialError(t *testing.T) {
 			})
 
 			// Attempting to dial should fail
-			conn, err := client.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", 17002))
+			conn, err := client.DialEarly(context.Background(), M.ParseSocksaddrHostPort("127.0.0.1", 17002))
 			require.NoError(t, err)
 			err = conn.Handshake()
 			require.Error(t, err, "expected dial to fail with %s", tc.name)
@@ -272,7 +272,7 @@ func TestNaiveLargeTransfer(t *testing.T) {
 		DNSResolver: localhostDNSResolver(t),
 	})
 
-	conn, err := client.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", 17003))
+	conn, err := client.DialEarly(context.Background(), M.ParseSocksaddrHostPort("127.0.0.1", 17003))
 	require.NoError(t, err)
 	defer conn.Close()
 
@@ -366,7 +366,7 @@ func TestNaiveGracefulShutdown(t *testing.T) {
 
 	// Open multiple connections
 	for i := 0; i < connectionCount; i++ {
-		conn, err := client.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", 17005))
+		conn, err := client.DialEarly(context.Background(), M.ParseSocksaddrHostPort("127.0.0.1", 17005))
 		require.NoError(t, err)
 		conns[i] = conn
 
@@ -439,7 +439,7 @@ func TestNaivePipeProxyMultipleConnections(t *testing.T) {
 		go func(idx int) {
 			defer wg.Done()
 
-			conn, err := client.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", 17006))
+			conn, err := client.DialEarly(context.Background(), M.ParseSocksaddrHostPort("127.0.0.1", 17006))
 			if err != nil {
 				errChannel <- err
 				return
@@ -534,7 +534,7 @@ func TestDNSTCFallbackToTCP(t *testing.T) {
 	})
 
 	// Make a connection - this will trigger DNS resolution
-	conn, err := client.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", 17007))
+	conn, err := client.DialEarly(context.Background(), M.ParseSocksaddrHostPort("127.0.0.1", 17007))
 	require.NoError(t, err)
 	defer conn.Close()
 
@@ -592,7 +592,7 @@ func TestDNSInterceptionUDPLoopbackFallback(t *testing.T) {
 	})
 
 	// Make a connection - this will trigger DNS resolution through UDP loopback
-	conn, err := client.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", 17008))
+	conn, err := client.DialEarly(context.Background(), M.ParseSocksaddrHostPort("127.0.0.1", 17008))
 	require.NoError(t, err)
 	defer conn.Close()
 
@@ -651,7 +651,7 @@ func TestDNSInterceptionDefaultPath(t *testing.T) {
 	})
 
 	// Make a connection - this will trigger DNS resolution through default path
-	conn, err := client.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", 17009))
+	conn, err := client.DialEarly(context.Background(), M.ParseSocksaddrHostPort("127.0.0.1", 17009))
 	require.NoError(t, err)
 	defer conn.Close()
 
@@ -694,7 +694,7 @@ func TestNaiveInsecureConcurrencySessionCount(t *testing.T) {
 
 	// Send multiple sequential connections to trigger round-robin
 	for i := 0; i < connectionCount; i++ {
-		conn, err := client.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", uint16(18000+i)))
+		conn, err := client.DialEarly(context.Background(), M.ParseSocksaddrHostPort("127.0.0.1", uint16(18000+i)))
 		require.NoError(t, err)
 
 		testData := []byte("test")
@@ -797,7 +797,7 @@ func TestServerAddressDomainWithDifferentServerName(t *testing.T) {
 
 	// If DNS redirect works correctly, this should connect to 127.0.0.1 (proxy.example.com)
 	// If DNS redirect fails, it would try to connect to 10.255.255.1 (example.org) and fail
-	conn, err := client.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", 18100))
+	conn, err := client.DialEarly(context.Background(), M.ParseSocksaddrHostPort("127.0.0.1", 18100))
 	require.NoError(t, err, "Connection failed - DNS redirect may not be working correctly")
 	defer conn.Close()
 
@@ -885,7 +885,7 @@ func TestServerAddressDomainWithNXDomainServerName(t *testing.T) {
 
 	// If DNS redirect works correctly, this should still connect to 127.0.0.1 (proxy.example.com)
 	// even though example.org returns NXDOMAIN
-	conn, err := client.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", 18101))
+	conn, err := client.DialEarly(context.Background(), M.ParseSocksaddrHostPort("127.0.0.1", 18101))
 	require.NoError(t, err, "Connection failed - DNS redirect may not be working when ServerName returns NXDOMAIN")
 	defer conn.Close()
 

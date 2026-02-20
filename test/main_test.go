@@ -131,7 +131,7 @@ func TestNaiveBasic(t *testing.T) {
 	})
 	startEchoServer(t, 15000)
 
-	conn, err := client.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", 15000))
+	conn, err := client.DialEarly(context.Background(), M.ParseSocksaddrHostPort("127.0.0.1", 15000))
 	require.NoError(t, err)
 	defer conn.Close()
 
@@ -476,7 +476,7 @@ func (f *Forwarder) acceptLoop() {
 func (f *Forwarder) handleConnection(conn net.Conn) {
 	defer conn.Close()
 
-	remoteConn, err := f.naiveClient.DialEarly(M.ParseSocksaddrHostPort("127.0.0.1", f.targetPort))
+	remoteConn, err := f.naiveClient.DialEarly(context.Background(), M.ParseSocksaddrHostPort("127.0.0.1", f.targetPort))
 	if err != nil {
 		return
 	}
