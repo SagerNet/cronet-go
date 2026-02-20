@@ -18,11 +18,11 @@ concurrency:
 
 jobs:
   linux:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
-        arch: [amd64, arm64, "386", arm]
+        arch: [amd64, arm64, "386", arm, loong64]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -36,6 +36,10 @@ jobs:
       - name: Get Chromium version
         id: chromium
         run: echo "version=$(cat naiveproxy/CHROMIUM_VERSION)" >> $GITHUB_OUTPUT
+      - name: Regenerate Debian keyring
+        run: |
+          rm -f ./naiveproxy/src/build/linux/sysroot_scripts/keyring.gpg
+          GPG_TTY=/dev/null ./naiveproxy/src/build/linux/sysroot_scripts/generate_keyring.sh
       - name: Cache build artifacts
         id: build-cache
         uses: actions/cache@v4
@@ -94,12 +98,12 @@ jobs:
           fi
           ./cronet.test -test.v -test.run=TestEngineVersion
       - name: Build purego test binary
-        if: matrix.arch == 'amd64' || matrix.arch == 'arm64'
+        if: matrix.arch == 'amd64' || matrix.arch == 'arm64' || matrix.arch == 'loong64'
         run: |
           cp lib/linux_${{ matrix.arch }}/libcronet.so .
           CGO_ENABLED=0 GOOS=linux GOARCH=${{ matrix.arch }} go test -tags with_purego -c -o cronet.purego.test .
       - name: Run purego test binary
-        if: matrix.arch == 'amd64' || matrix.arch == 'arm64'
+        if: matrix.arch == 'amd64' || matrix.arch == 'arm64' || matrix.arch == 'loong64'
         run: |
           if [ "${{ matrix.arch }}" != "amd64" ]; then
             eval $(go run ./cmd/build-naive --target=linux/${{ matrix.arch }} env --export)
@@ -363,11 +367,11 @@ jobs:
             include_cgo.go
 
   linux-musl:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
-        arch: [amd64, arm64, "386", arm]
+        arch: [amd64, arm64, "386", arm, loong64]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -436,10 +440,11 @@ jobs:
         run: |
           # Static binary - can run directly with QEMU binfmt or explicit QEMU for cross-arch
           case "${{ matrix.arch }}" in
-            amd64) QEMU=qemu-x86_64 ;;
-            arm64) QEMU=qemu-aarch64 ;;
-            386)   QEMU=qemu-i386 ;;
-            arm)   QEMU=qemu-arm ;;
+            amd64)   QEMU=qemu-x86_64 ;;
+            arm64)   QEMU=qemu-aarch64 ;;
+            386)     QEMU=qemu-i386 ;;
+            arm)     QEMU=qemu-arm ;;
+            loong64) QEMU=qemu-loongarch64 ;;
           esac
           timeout 60 $QEMU ./cronet.test -test.v -test.run=TestEngineVersion -test.timeout=30s
       - uses: actions/upload-artifact@v4

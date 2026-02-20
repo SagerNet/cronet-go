@@ -1,4 +1,4 @@
-//go:build with_purego && (amd64 || arm64)
+//go:build with_purego && (amd64 || arm64 || loong64)
 
 package cronet
 

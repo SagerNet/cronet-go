@@ -19,8 +19,9 @@ Go bindings for [naiveproxy](https://github.com/klzgrad/naiveproxy).
 | linux/386     | linux   | x86   |
 | linux/amd64   | linux   | x64   |
 | linux/arm     | linux   | arm   |
-| linux/arm64   | linux   | arm64 |
-| windows/amd64 | win     | x64   |
+| linux/arm64   | linux   | arm64   |
+| linux/loong64 | linux   | loong64 |
+| windows/amd64 | win     | x64     |
 | windows/arm64 | win     | arm64 |
 
 ## System Requirements
@@ -31,8 +32,8 @@ Go bindings for [naiveproxy](https://github.com/klzgrad/naiveproxy).
 | iOS/tvOS      | 15.0            |
 | Windows       | 10              |
 | Android       | 5.0 (API 21)    |
-| Linux (glibc) | glibc 2.31      |
-| Linux (musl)  | any             |
+| Linux (glibc)       | glibc 2.31 (loong64: 2.36) |
+| Linux (musl)        | any (loong64: 1.2.5)       |
 
 ## Downstream Build Requirements
 
