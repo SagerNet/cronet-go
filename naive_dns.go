@@ -207,11 +207,15 @@ func wrapDNSResolverWithECH(
 					redirectedRequest.Question[0].Name = rewriteHTTPSQueryName(question.Name, serverName, echQueryServerName)
 					response = resolver(ctx, redirectedRequest)
 					if response != nil {
+						response = response.Copy()
 						response.Question = request.Question
 						rewriteHTTPSAnswerNames(response, echQueryServerName, serverName)
 					}
 				} else {
 					response = resolver(ctx, request)
+					if response != nil {
+						response = response.Copy()
+					}
 				}
 
 				filterIPHintsFromHTTPS(response)
@@ -426,6 +430,7 @@ func wrapDNSResolverForServerRedirect(
 
 		response := resolver(ctx, redirectedRequest)
 		if response != nil {
+			response = response.Copy()
 			response.Question = request.Question
 			rewriteAddressAnswerNames(response, serverAddress.AddrString(), serverName)
 		}
