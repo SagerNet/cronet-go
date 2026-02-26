@@ -189,6 +189,13 @@ func (e Engine) SetTrustedRootCertificates(pemRootCerts string) bool {
 	return true
 }
 
+// CloseAllConnections closes all connections managed by the engine's network session.
+// This includes socket pools, HTTP stream pool, SPDY session pool, and QUIC session pool.
+// Useful for releasing connection-related memory or speeding up engine shutdown.
+func (e Engine) CloseAllConnections() {
+	cronet.EngineCloseAllConnections(e.ptr)
+}
+
 // SetDialer sets a custom dialer for TCP connections.
 // When set, the engine will use this callback to establish TCP connections
 // instead of the default system socket API.

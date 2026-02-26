@@ -66,8 +66,6 @@ type NaiveClient struct {
 	engine                  Engine
 	streamEngine            StreamEngine
 	activeConnections       sync.WaitGroup
-	connectionsMutex        sync.Mutex
-	connections             map[*trackedNaiveConn]struct{}
 	proxyWaitGroup          sync.WaitGroup
 	proxyCancel             context.CancelFunc
 }
@@ -158,7 +156,6 @@ func NewNaiveClient(config NaiveClientOptions) (*NaiveClient, error) {
 		quicEnabled:             config.QUIC,
 		quicCongestionControl:   config.QUICCongestionControl,
 		concurrency:             concurrency,
-		connections:             make(map[*trackedNaiveConn]struct{}),
 		started:                 make(chan struct{}),
 	}, nil
 }
@@ -430,9 +427,6 @@ func (c *NaiveClient) DialEarly(ctx context.Context, destination M.Socksaddr) (N
 		NaiveConn: NewNaiveConn(ctx, conn, c.logger),
 		client:    c,
 	}
-	c.connectionsMutex.Lock()
-	c.connections[trackedConn] = struct{}{}
-	c.connectionsMutex.Unlock()
 	c.activeConnections.Add(1)
 	return trackedConn, nil
 }
@@ -495,17 +489,7 @@ func (c *NaiveClient) doClose() error {
 		c.proxyCancel()
 	}
 
-	c.connectionsMutex.Lock()
-	connections := make([]*trackedNaiveConn, 0, len(c.connections))
-	for conn := range c.connections {
-		connections = append(connections, conn)
-	}
-	c.connectionsMutex.Unlock()
-
-	for _, conn := range connections {
-		conn.Close()
-	}
-
+	c.engine.CloseAllConnections()
 	c.proxyWaitGroup.Wait()
 	c.activeConnections.Wait()
 	c.engine.Shutdown()
@@ -513,12 +497,6 @@ func (c *NaiveClient) doClose() error {
 
 	c.state.Store(uint32(clientStateClosed))
 	return nil
-}
-
-func (c *NaiveClient) removeConnection(conn *trackedNaiveConn) {
-	c.connectionsMutex.Lock()
-	delete(c.connections, conn)
-	c.connectionsMutex.Unlock()
 }
 
 func (c *NaiveClient) getECHConfigList() []byte {
@@ -535,7 +513,6 @@ type trackedNaiveConn struct {
 
 func (c *trackedNaiveConn) Close() error {
 	c.closeOnce.Do(func() {
-		c.client.removeConnection(c)
 		c.client.activeConnections.Done()
 	})
 	return c.NaiveConn.Close()

@@ -53,6 +53,7 @@ var (
 	cronetEngineRemoveRequestFinishedListener func(uintptr, uintptr)
 	cronetEngineGetStreamEngine               func(uintptr) uintptr
 	cronetEngineSetMockCertVerifierForTesting func(uintptr, uintptr)
+	cronetEngineCloseAllConnections           func(uintptr)
 	cronetEngineSetDialer                     func(uintptr, uintptr, uintptr)
 	cronetEngineSetUdpDialer                  func(uintptr, uintptr, uintptr)
 
