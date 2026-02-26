@@ -73,11 +73,11 @@ func getExtraFlags(t Target) string {
 }
 
 type openwrtConfig struct {
-	target      string // OpenWrt target (e.g., "x86", "armsr")
-	subtarget   string // OpenWrt subtarget (e.g., "64", "generic")
-	arch        string // OpenWrt arch (e.g., "x86_64", "aarch64")
-	release     string // OpenWrt release version
-	gccVer      string // GCC version in SDK
+	target      string   // OpenWrt target (e.g., "x86", "armsr")
+	subtarget   string   // OpenWrt subtarget (e.g., "64", "generic")
+	arch        string   // OpenWrt arch (e.g., "x86_64", "aarch64")
+	release     string   // OpenWrt release version
+	gccVer      string   // GCC version in SDK
 	extraGNArgs []string // additional GN args passed to buildTarget
 }
 

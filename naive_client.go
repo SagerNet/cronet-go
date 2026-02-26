@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"runtime"
 	"sync"
 	"sync/atomic"
 
@@ -353,7 +354,11 @@ func (c *NaiveClient) Start() error {
 	}
 
 	if !c.quicEnabled {
-		startError = params.SetHTTP2Options(134217728, 67108864) // 128 MB session, 64 MB stream
+		if runtime.GOOS == "ios" {
+			startError = params.SetHTTP2Options(16777216, 8388608) // 16 MB session, 8 MB stream
+		} else {
+			startError = params.SetHTTP2Options(134217728, 67108864) // 128 MB session, 64 MB stream
+		}
 		if startError != nil {
 			return startError
 		}
