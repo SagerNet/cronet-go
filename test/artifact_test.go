@@ -8,6 +8,7 @@ import (
 	"unicode"
 
 	cronet "github.com/sagernet/cronet-go"
+
 	"github.com/stretchr/testify/require"
 )
 

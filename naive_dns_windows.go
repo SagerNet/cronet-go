@@ -16,8 +16,9 @@ import (
 const maxFramedPacketSize = 65535
 
 type framedPacketConn struct {
-	conn      net.Conn
-	readMutex sync.Mutex
+	conn       net.Conn
+	readMutex  sync.Mutex
+	writeMutex sync.Mutex
 }
 
 var _ net.PacketConn = (*framedPacketConn)(nil)
@@ -50,11 +51,20 @@ func (c *framedPacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
 		return 0, errors.New("packet too large")
 	}
 
-	frame := make([]byte, 2+len(p))
-	binary.BigEndian.PutUint16(frame[:2], uint16(len(p)))
-	copy(frame[2:], p)
+	// Write length prefix and payload as separate writes to avoid
+	// Windows AF_UNIX SOCK_STREAM message-mode behavior where a single
+	// large write becomes an indivisible "message" that cannot be read
+	// in smaller chunks (WSARecv returns WSAEMSGSIZE).
+	c.writeMutex.Lock()
+	defer c.writeMutex.Unlock()
 
-	_, err = c.conn.Write(frame)
+	var lengthBuf [2]byte
+	binary.BigEndian.PutUint16(lengthBuf[:], uint16(len(p)))
+	_, err = c.conn.Write(lengthBuf[:])
+	if err != nil {
+		return 0, err
+	}
+	_, err = c.conn.Write(p)
 	if err != nil {
 		return 0, err
 	}
