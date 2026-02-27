@@ -85,6 +85,7 @@ func createUnixSocketPairWithName(name string) (cronetFD int, proxyConn net.Conn
 	if err != nil {
 		return -1, nil, err
 	}
+	setUnixSocketBufferSize(clientSocket)
 	closeClientSocket := func() {
 		_ = windows.Closesocket(clientSocket)
 	}
@@ -119,6 +120,7 @@ func createUnixSocketPairWithName(name string) (cronetFD int, proxyConn net.Conn
 		return -1, nil, acceptError
 	}
 
+	setUnixSocketBufferSize(acceptedSocket)
 	closeListenerSocket()
 	if name != "" && name[0] != '@' {
 		_ = os.Remove(name)
@@ -133,6 +135,16 @@ func createUnixSocketPairWithName(name string) (cronetFD int, proxyConn net.Conn
 	}
 
 	return int(clientSocket), proxyConn, nil
+}
+
+func setUnixSocketBufferSize(socket windows.Handle) {
+	// Increase buffer sizes to prevent WSAEMSGSIZE errors on AF_UNIX
+	// SOCK_STREAM sockets. Windows AF_UNIX is message-mode: each send()
+	// must fit atomically in the buffer. With the default small buffer,
+	// bursts of QUIC packets (1250 bytes each) quickly fill it.
+	const bufferSize = 2 * 1024 * 1024
+	_ = windows.SetsockoptInt(socket, windows.SOL_SOCKET, windows.SO_SNDBUF, bufferSize)
+	_ = windows.SetsockoptInt(socket, windows.SOL_SOCKET, windows.SO_RCVBUF, bufferSize)
 }
 
 func randomHexString(byteCount int) (string, error) {
