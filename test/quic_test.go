@@ -102,6 +102,7 @@ func TestNaiveQUIC(t *testing.T) {
 		Password:                "test",
 		TrustedRootCertificates: string(caPemContent),
 		DNSResolver:             localhostDNSResolverWithHTTPSResponse(t, naiveQUICServerPort, []string{"h3"}),
+
 		QUIC:                    true,
 	})
 	require.NoError(t, err)
@@ -142,6 +143,7 @@ func TestNaiveQUICLargeTransfer(t *testing.T) {
 		Password:                "test",
 		TrustedRootCertificates: string(caPemContent),
 		DNSResolver:             localhostDNSResolverWithHTTPSResponse(t, naiveQUICServerPort, []string{"h3"}),
+
 		QUIC:                    true,
 	})
 	require.NoError(t, err)
@@ -200,6 +202,7 @@ func TestNaiveQUICDomainNon443DoesNotIssueHTTPSDNSQueryByDefault(t *testing.T) {
 		Password:                "test",
 		TrustedRootCertificates: string(caPemContent),
 		DNSResolver:             dnsResolver,
+
 		QUIC:                    true,
 	})
 	require.NoError(t, err)
@@ -253,6 +256,7 @@ func TestNaiveQUICDomainNon443ECHHTTPSDNSDelayAffectsHandshake(t *testing.T) {
 		DNSResolver:             dnsResolver,
 		ECHEnabled:              true,
 		QUIC:                    true,
+
 	})
 	require.NoError(t, err)
 	require.NoError(t, client.Start())
@@ -315,6 +319,7 @@ func TestNaiveQUICDomainNon443ECHFixedConfigDisablesHTTPSLookup(t *testing.T) {
 		ECHEnabled:              true,
 		ECHConfigList:           echConfigBlock.Bytes,
 		QUIC:                    true,
+
 	})
 	require.NoError(t, err)
 	require.NoError(t, client.Start())
@@ -370,6 +375,7 @@ func TestNaiveQUICFixedIPSkipsServerDNSQueries(t *testing.T) {
 		TrustedRootCertificates: string(caPemContent),
 		DNSResolver:             dnsResolver,
 		QUIC:                    true,
+
 	})
 	require.NoError(t, err)
 	require.NoError(t, client.Start())

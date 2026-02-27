@@ -11,6 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+
 	"github.com/sagernet/sing/common/bufio"
 	E "github.com/sagernet/sing/common/exceptions"
 	F "github.com/sagernet/sing/common/format"
