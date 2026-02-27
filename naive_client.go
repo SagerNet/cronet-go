@@ -42,56 +42,56 @@ const (
 )
 
 type NaiveClient struct {
-	state                   atomic.Uint32
-	ctx                     context.Context
-	dialer                  N.Dialer
-	logger                  logger.ContextLogger
-	serverAddress           M.Socksaddr
-	serverName              string
-	serverURL               string
-	authorization           string
-	concurrency             int
-	extraHeaders            map[string]string
-	trustedRootCertificates string
-	dnsResolver             DNSResolverFunc
-	echEnabled              bool
-	echConfigList           []byte
-	echQueryServerName      string
-	echMutex                sync.RWMutex
-	testForceUDPLoopback    bool
-	quicEnabled             bool
-	quicCongestionControl   QUICCongestionControl
-	streamReceiveWindow     int
-	sessionReceiveWindow    int
-	counter                 atomic.Uint64
-	started                 chan struct{}
-	engine                  Engine
-	streamEngine            StreamEngine
-	activeConnections       sync.WaitGroup
-	proxyWaitGroup          sync.WaitGroup
-	proxyCancel             context.CancelFunc
+	state                    atomic.Uint32
+	ctx                      context.Context
+	dialer                   N.Dialer
+	logger                   logger.ContextLogger
+	serverAddress            M.Socksaddr
+	serverName               string
+	serverURL                string
+	authorization            string
+	concurrency              int
+	extraHeaders             map[string]string
+	receiveWindow            uint64
+	trustedRootCertificates  string
+	dnsResolver              DNSResolverFunc
+	echEnabled               bool
+	echConfigList            []byte
+	echQueryServerName       string
+	echMutex                 sync.RWMutex
+	testForceUDPLoopback     bool
+	quicEnabled              bool
+	quicCongestionControl    QUICCongestionControl
+	quicSessionReceiveWindow uint64
+	counter                  atomic.Uint64
+	started                  chan struct{}
+	engine                   Engine
+	streamEngine             StreamEngine
+	activeConnections        sync.WaitGroup
+	proxyWaitGroup           sync.WaitGroup
+	proxyCancel              context.CancelFunc
 }
 
 type NaiveClientOptions struct {
-	Context                 context.Context
-	ServerAddress           M.Socksaddr
-	ServerName              string
-	Username                string
-	Password                string
-	InsecureConcurrency     int
-	ExtraHeaders            map[string]string
-	TrustedRootCertificates string
-	DNSResolver             DNSResolverFunc
-	Logger                  logger.ContextLogger
-	Dialer                  N.Dialer
-	ECHEnabled              bool
-	ECHConfigList           []byte
-	ECHQueryServerName      string
-	TestForceUDPLoopback    bool
-	QUIC                    bool
-	QUICCongestionControl   QUICCongestionControl
-	StreamReceiveWindow     int
-	SessionReceiveWindow    int
+	Context                  context.Context
+	ServerAddress            M.Socksaddr
+	ServerName               string
+	Username                 string
+	Password                 string
+	InsecureConcurrency      int
+	ReceiveWindow            uint64
+	ExtraHeaders             map[string]string
+	TrustedRootCertificates  string
+	DNSResolver              DNSResolverFunc
+	Logger                   logger.ContextLogger
+	Dialer                   N.Dialer
+	ECHEnabled               bool
+	ECHConfigList            []byte
+	ECHQueryServerName       string
+	TestForceUDPLoopback     bool
+	QUIC                     bool
+	QUICCongestionControl    QUICCongestionControl
+	QUICSessionReceiveWindow uint64
 }
 
 func NewNaiveClient(config NaiveClientOptions) (*NaiveClient, error) {
@@ -146,26 +146,26 @@ func NewNaiveClient(config NaiveClientOptions) (*NaiveClient, error) {
 	}
 
 	return &NaiveClient{
-		ctx:                     ctx,
-		dialer:                  dialer,
-		logger:                  l,
-		serverAddress:           config.ServerAddress,
-		serverName:              serverName,
-		serverURL:               serverURL.String(),
-		authorization:           authorization,
-		extraHeaders:            config.ExtraHeaders,
-		concurrency:             concurrency,
-		trustedRootCertificates: config.TrustedRootCertificates,
-		dnsResolver:             config.DNSResolver,
-		echEnabled:              config.ECHEnabled,
-		echConfigList:           config.ECHConfigList,
-		echQueryServerName:      config.ECHQueryServerName,
-		testForceUDPLoopback:    config.TestForceUDPLoopback,
-		quicEnabled:             config.QUIC,
-		quicCongestionControl:   config.QUICCongestionControl,
-		streamReceiveWindow:     config.StreamReceiveWindow,
-		sessionReceiveWindow:    config.SessionReceiveWindow,
-		started:                 make(chan struct{}),
+		ctx:                      ctx,
+		dialer:                   dialer,
+		logger:                   l,
+		serverAddress:            config.ServerAddress,
+		serverName:               serverName,
+		serverURL:                serverURL.String(),
+		authorization:            authorization,
+		extraHeaders:             config.ExtraHeaders,
+		concurrency:              concurrency,
+		trustedRootCertificates:  config.TrustedRootCertificates,
+		dnsResolver:              config.DNSResolver,
+		echEnabled:               config.ECHEnabled,
+		echConfigList:            config.ECHConfigList,
+		echQueryServerName:       config.ECHQueryServerName,
+		testForceUDPLoopback:     config.TestForceUDPLoopback,
+		quicEnabled:              config.QUIC,
+		quicCongestionControl:    config.QUICCongestionControl,
+		receiveWindow:            config.ReceiveWindow,
+		quicSessionReceiveWindow: config.QUICSessionReceiveWindow,
+		started:                  make(chan struct{}),
 	}, nil
 }
 
@@ -280,12 +280,17 @@ func (c *NaiveClient) Start() error {
 				c.logger.ErrorContext(c.ctx, "socket pair failed: ", err)
 				return NetErrorConnectionFailed.Code(), "", 0
 			}
+			localAddr := M.SocksaddrFromNet(conn.LocalAddr())
+			if localAddr.IsValid() {
+				localAddress = localAddr.AddrString()
+				localPort = localAddr.Port
+			}
 
 			go func() {
 				_ = serveDNSPacketConn(proxyContext, conn, dnsResolver)
 			}()
 
-			return fd, address, port
+			return fd, localAddress, localPort
 		}
 
 		destination := M.ParseSocksaddrHostPort(address, port)
@@ -296,11 +301,10 @@ func (c *NaiveClient) Start() error {
 			return toNetError(err).Code(), "", 0
 		}
 
-		if localAddr := conn.LocalAddr(); localAddr != nil {
-			if udpAddr, ok := localAddr.(*net.UDPAddr); ok {
-				localAddress = udpAddr.IP.String()
-				localPort = uint16(udpAddr.Port)
-			}
+		localAddr := M.SocksaddrFromNet(conn.LocalAddr())
+		if localAddr.IsValid() {
+			localAddress = localAddr.AddrString()
+			localPort = localAddr.Port
 		}
 
 		if udpConn, ok := N.CastReader[*net.UDPConn](conn); ok {
@@ -355,11 +359,11 @@ func (c *NaiveClient) Start() error {
 		if c.quicCongestionControl != "" {
 			quicOptions["connection_options"] = string(c.quicCongestionControl)
 		}
-		streamReceiveWindow := c.streamReceiveWindow
+		streamReceiveWindow := c.receiveWindow
 		if streamReceiveWindow == 0 {
 			streamReceiveWindow = 8 * 1024 * 1024
 		}
-		sessionReceiveWindow := c.sessionReceiveWindow
+		sessionReceiveWindow := c.quicSessionReceiveWindow
 		if sessionReceiveWindow == 0 {
 			sessionReceiveWindow = 20 * 1024 * 1024
 		}
@@ -378,15 +382,15 @@ func (c *NaiveClient) Start() error {
 				return startError
 			}
 		}
-		streamReceiveWindow := c.streamReceiveWindow
-		if streamReceiveWindow == 0 {
+		receiveWindow := c.receiveWindow
+		if receiveWindow == 0 {
 			if runtime.GOOS == "ios" {
-				streamReceiveWindow = 4 * 1024 * 1024
+				receiveWindow = 4 * 1024 * 1024
 			} else {
-				streamReceiveWindow = 128 * 1024 * 1024
+				receiveWindow = 128 * 1024 * 1024
 			}
 		}
-		startError = params.SetHTTP2Options(streamReceiveWindow, streamReceiveWindow/2)
+		startError = params.SetHTTP2Options(receiveWindow, receiveWindow/2)
 		if startError != nil {
 			return startError
 		}
@@ -397,8 +401,12 @@ func (c *NaiveClient) Start() error {
 		return startError
 	}
 
-	engine.StartWithParams(params)
+	result := engine.StartWithParams(params)
 	params.Destroy()
+	if result != ResultSuccess {
+		startError = E.New("failed to start engine: ", int(result))
+		return startError
+	}
 
 	c.engine = engine
 	c.streamEngine = engine.StreamEngine()

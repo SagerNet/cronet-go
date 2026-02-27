@@ -522,6 +522,10 @@ jobs:
             target: windows/arm64
             mode: purego
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      CRONET_TEST_ARTIFACT_DIR: ${{ github.workspace }}/test-artifacts/${{ matrix.name }}
+      CRONET_TEST_CAPTURE_NETLOG: "1"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -602,20 +606,34 @@ jobs:
       # CGO mode tests
       - name: Run integration tests (CGO)
         if: matrix.mode == 'cgo'
+        timeout-minutes: 20
         run: |
+          mkdir -p "$CRONET_TEST_ARTIFACT_DIR"
           eval $(go run ./cmd/build-naive --target=${{ matrix.target }} env --export)
-          cd test && CGO_ENABLED=1 go test -v
+          cd test
+          LOG_PATH="$CRONET_TEST_ARTIFACT_DIR/go-test.log"
+          if ! CGO_ENABLED=1 go test -v -timeout=12m >"$LOG_PATH" 2>&1; then
+            tail -n 400 "$LOG_PATH" || true
+            exit 1
+          fi
 
       # purego mode tests
       - name: Run integration tests (purego - Linux)
         if: matrix.mode == 'purego' && runner.os == 'Linux'
+        timeout-minutes: 20
         working-directory: test
         run: |
+          mkdir -p "$CRONET_TEST_ARTIFACT_DIR"
           export LD_LIBRARY_PATH=$PWD/../lib/linux_${{ contains(matrix.target, 'arm64') && 'arm64' || 'amd64' }}
-          CGO_ENABLED=0 go test -tags with_purego -v
+          LOG_PATH="$CRONET_TEST_ARTIFACT_DIR/go-test.log"
+          if ! CGO_ENABLED=0 go test -tags with_purego -v -timeout=12m >"$LOG_PATH" 2>&1; then
+            tail -n 400 "$LOG_PATH" || true
+            exit 1
+          fi
 
       - name: Run integration tests (purego - Windows)
         if: matrix.mode == 'purego' && runner.os == 'Windows'
+        timeout-minutes: 20
         working-directory: test
         shell: bash
         run: |
@@ -625,7 +643,20 @@ jobs:
             */amd64) LIB_DIR="windows_amd64" ;;
           esac
           export PATH="$PWD/../lib/${LIB_DIR}:$PATH"
-          go test -tags with_purego -v
+          mkdir -p "$CRONET_TEST_ARTIFACT_DIR"
+          LOG_PATH="$CRONET_TEST_ARTIFACT_DIR/go-test.log"
+          if ! go test -tags with_purego -v -timeout=12m >"$LOG_PATH" 2>&1; then
+            tail -n 400 "$LOG_PATH" || true
+            exit 1
+          fi
+
+      - name: Upload integration logs (test failure)
+        if: always() && (failure() || cancelled())
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-logs-${{ matrix.name }}
+          path: test-artifacts/${{ matrix.name }}/
+          if-no-files-found: warn
 
   publish:
     if: github.event_name == 'push'

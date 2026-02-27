@@ -8,7 +8,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -688,9 +687,7 @@ func TestNaiveInsecureConcurrencySessionCount(t *testing.T) {
 	}
 
 	// Start NetLog
-	netLogPath := filepath.Join(t.TempDir(), "netlog.json")
-	require.True(t, client.Engine().StartNetLogToFile(netLogPath, true),
-		"Failed to start NetLog")
+	netLogPath := startNetLogForTest(t, client, "insecure_concurrency_netlog.json", true)
 
 	// Send multiple sequential connections to trigger round-robin
 	for i := 0; i < connectionCount; i++ {

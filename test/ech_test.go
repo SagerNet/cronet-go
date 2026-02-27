@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	cronet "github.com/sagernet/cronet-go"
 	M "github.com/sagernet/sing/common/metadata"
@@ -22,15 +21,13 @@ import (
 	"golang.org/x/crypto/cryptobyte"
 )
 
-const (
-	echServerPort = 10001
-	echEchoPort   = 18100
-)
-
 // TestNaiveECH verifies that ECH (Encrypted Client Hello) works with NaiveClient.
 // It starts a sing-box naive server with ECH enabled, then connects using
 // NaiveClient with ECH config injected via DNS HTTPS records.
 func TestNaiveECH(t *testing.T) {
+	echServerPort := reserveTCPPort(t)
+	echEchoPort := reserveTCPPort(t)
+
 	// Generate ECH config and key
 	echConfigPEM, echKeyPEM, err := echKeygenDefault("not.example.org")
 	require.NoError(t, err)
@@ -47,7 +44,6 @@ func TestNaiveECH(t *testing.T) {
 
 	// Start naive server with ECH
 	startNaiveServerWithECH(t, certPath, keyPath, echKeyPEM, echServerPort)
-	time.Sleep(time.Second)
 
 	// Start echo server
 	startEchoServer(t, echEchoPort)
@@ -105,9 +101,7 @@ func TestNaiveECH(t *testing.T) {
 	t.Cleanup(func() { client.Close() })
 
 	// Start NetLog to capture TLS handshake details
-	netLogPath := filepath.Join(t.TempDir(), "ech_netlog.json")
-	require.True(t, client.Engine().StartNetLogToFile(netLogPath, true),
-		"Failed to start NetLog")
+	netLogPath := startNetLogForTest(t, client, "ech_netlog.json", true)
 	defer client.Engine().StopNetLog()
 
 	// Make a connection
@@ -182,7 +176,7 @@ func startNaiveServerWithECH(t *testing.T, certPath, keyPath, echKey string, por
 	err = os.WriteFile(configPath, []byte(config), 0o644)
 	require.NoError(t, err)
 
-	startNaiveServerWithConfig(t, binary, configPath)
+	startNaiveServerWithConfig(t, binary, configPath, port, "tcp")
 }
 
 // echKeygenDefault generates ECH config and key in PEM format.

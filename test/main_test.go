@@ -21,6 +21,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -59,7 +60,6 @@ func setupTestEnv(t *testing.T) *testEnv {
 	caPemContent, err := os.ReadFile(caPem)
 	require.NoError(t, err)
 	startNaiveServer(t, certPem, keyPem)
-	time.Sleep(time.Second)
 	return &testEnv{
 		caPEM:    caPemContent,
 		certPath: certPem,
@@ -121,6 +121,26 @@ func startEchoServer(t *testing.T, port uint16) {
 			}(conn)
 		}
 	}()
+}
+
+func reserveTCPPort(t *testing.T) uint16 {
+	t.Helper()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer listener.Close()
+
+	return uint16(listener.Addr().(*net.TCPAddr).Port)
+}
+
+func reserveUDPPort(t *testing.T) uint16 {
+	t.Helper()
+
+	conn, err := net.ListenPacket("udp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer conn.Close()
+
+	return uint16(conn.LocalAddr().(*net.UDPAddr).Port)
 }
 
 // TestNaiveBasic verifies basic NaiveClient connectivity
@@ -390,22 +410,84 @@ func startNaiveServer(t *testing.T, certPem, keyPem string) {
 	err = os.WriteFile(configPath, []byte(config), 0o644)
 	require.NoError(t, err)
 
-	startNaiveServerWithConfig(t, binary, configPath)
+	startNaiveServerWithConfig(t, binary, configPath, naiveServerPort, "tcp")
 }
 
-func startNaiveServerWithConfig(t *testing.T, binary, configPath string) {
+func startNaiveServerWithConfig(t *testing.T, binary, configPath string, listenPort uint16, network string) {
 	cmd := exec.Command(binary, "run", "-c", configPath)
+	traceFile, tracePath := createArtifactTempFile(t, "trace", "sing-box-*.log")
 	if testing.Verbose() {
-		cmd.Stdout = os.Stderr
-		cmd.Stderr = os.Stderr
+		writer := io.MultiWriter(traceFile, os.Stderr)
+		cmd.Stdout = writer
+		cmd.Stderr = writer
+	} else {
+		cmd.Stdout = traceFile
+		cmd.Stderr = traceFile
+	}
+	if testing.Verbose() {
+		t.Logf("sing-box trace: %s", tracePath)
 	}
 	err := cmd.Start()
-	require.NoError(t, err)
+	require.NoError(t, err, "failed to start sing-box; trace: %s", tracePath)
+
+	waitForServerReady(t, network, listenPort, 10*time.Second, tracePath)
 
 	t.Cleanup(func() {
-		cmd.Process.Kill()
-		cmd.Wait()
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		_ = traceFile.Close()
 	})
+}
+
+func waitForServerReady(t *testing.T, network string, port uint16, timeout time.Duration, tracePath string) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	address := net.JoinHostPort("127.0.0.1", strconv.Itoa(int(port)))
+	var lastErr error
+
+	for time.Now().Before(deadline) {
+		switch network {
+		case "udp":
+			ready, err := traceContainsServerReady(tracePath, port)
+			if err != nil {
+				lastErr = err
+			} else if ready {
+				return
+			}
+		default:
+			conn, err := net.DialTimeout("tcp", address, 200*time.Millisecond)
+			if err == nil {
+				_ = conn.Close()
+				return
+			}
+			lastErr = err
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	require.Failf(
+		t,
+		"server did not become ready",
+		"network=%s address=%s timeout=%s lastErr=%v trace=%s",
+		network,
+		address,
+		timeout,
+		lastErr,
+		tracePath,
+	)
+}
+
+func traceContainsServerReady(tracePath string, port uint16) (bool, error) {
+	traceContent, err := os.ReadFile(tracePath)
+	if err != nil {
+		return false, err
+	}
+
+	content := strings.ToLower(string(traceContent))
+	serverStarted := strings.Contains(content, "server started at")
+	portMarker := ":" + strconv.Itoa(int(port))
+	return serverStarted && strings.Contains(content, portMarker), nil
 }
 
 // iperf3 utilities

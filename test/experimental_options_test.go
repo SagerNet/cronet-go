@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"testing"
-	"time"
 
 	cronet "github.com/sagernet/cronet-go"
 	M "github.com/sagernet/sing/common/metadata"
@@ -65,9 +63,7 @@ func TestHTTP2Options(t *testing.T) {
 
 	startEchoServer(t, 18100)
 
-	netLogPath := filepath.Join(t.TempDir(), "http2_options_netlog.json")
-	require.True(t, client.Engine().StartNetLogToFile(netLogPath, true),
-		"Failed to start NetLog")
+	netLogPath := startNetLogForTest(t, client, "http2_options_netlog.json", true)
 
 	conn, err := client.DialEarly(context.Background(), M.ParseSocksaddrHostPort("127.0.0.1", 18100))
 	require.NoError(t, err)
@@ -165,12 +161,12 @@ func TestSocketPoolOptions(t *testing.T) {
 }
 
 func TestQUICReceiveWindowCustomValues(t *testing.T) {
+	naiveQUICServerPort := reserveUDPPort(t)
 	caPem, certPem, keyPem := generateCertificate(t, "example.org")
 	caPemContent, err := os.ReadFile(caPem)
 	require.NoError(t, err)
 
-	startNaiveQUICServer(t, certPem, keyPem)
-	time.Sleep(time.Second)
+	startNaiveQUICServer(t, certPem, keyPem, naiveQUICServerPort)
 
 	const (
 		customStreamWindow  = 4 * 1024 * 1024
@@ -178,26 +174,26 @@ func TestQUICReceiveWindowCustomValues(t *testing.T) {
 	)
 
 	client, err := cronet.NewNaiveClient(cronet.NaiveClientOptions{
-		ServerAddress:           M.ParseSocksaddrHostPort("127.0.0.1", naiveQUICServerPort),
-		ServerName:              "example.org",
-		Username:                "test",
-		Password:                "test",
-		TrustedRootCertificates: string(caPemContent),
-		DNSResolver:             localhostDNSResolverWithHTTPSResponse(t, naiveQUICServerPort, []string{"h3"}),
-		QUIC:                    true,
-		StreamReceiveWindow:     customStreamWindow,
-		SessionReceiveWindow:    customSessionWindow,
+		ServerAddress:            M.ParseSocksaddrHostPort("127.0.0.1", naiveQUICServerPort),
+		ServerName:               "example.org",
+		Username:                 "test",
+		Password:                 "test",
+		TrustedRootCertificates:  string(caPemContent),
+		DNSResolver:              localhostDNSResolverWithHTTPSResponse(t, naiveQUICServerPort, []string{"h3"}),
+		QUIC:                     true,
+		ReceiveWindow:            customStreamWindow,
+		QUICSessionReceiveWindow: customSessionWindow,
 	})
 	require.NoError(t, err)
 	require.NoError(t, client.Start())
 	t.Cleanup(func() { client.Close() })
 
-	startEchoServer(t, 18300)
+	echoPort := reserveTCPPort(t)
+	startEchoServer(t, echoPort)
 
-	netLogPath := filepath.Join(t.TempDir(), "quic_recv_window_custom.json")
-	require.True(t, client.Engine().StartNetLogToFile(netLogPath, true))
+	netLogPath := startNetLogForTest(t, client, "quic_recv_window_custom.json", true)
 
-	conn, err := client.DialEarly(context.Background(), M.ParseSocksaddrHostPort("127.0.0.1", 18300))
+	conn, err := client.DialEarly(context.Background(), M.ParseSocksaddrHostPort("127.0.0.1", echoPort))
 	require.NoError(t, err)
 
 	testData := []byte("quic custom window test")
@@ -222,12 +218,12 @@ func TestQUICReceiveWindowCustomValues(t *testing.T) {
 }
 
 func TestQUICReceiveWindowDefaults(t *testing.T) {
+	naiveQUICServerPort := reserveUDPPort(t)
 	caPem, certPem, keyPem := generateCertificate(t, "example.org")
 	caPemContent, err := os.ReadFile(caPem)
 	require.NoError(t, err)
 
-	startNaiveQUICServer(t, certPem, keyPem)
-	time.Sleep(time.Second)
+	startNaiveQUICServer(t, certPem, keyPem, naiveQUICServerPort)
 
 	const (
 		defaultStreamWindow  = 8 * 1024 * 1024
@@ -247,12 +243,12 @@ func TestQUICReceiveWindowDefaults(t *testing.T) {
 	require.NoError(t, client.Start())
 	t.Cleanup(func() { client.Close() })
 
-	startEchoServer(t, 18301)
+	echoPort := reserveTCPPort(t)
+	startEchoServer(t, echoPort)
 
-	netLogPath := filepath.Join(t.TempDir(), "quic_recv_window_defaults.json")
-	require.True(t, client.Engine().StartNetLogToFile(netLogPath, true))
+	netLogPath := startNetLogForTest(t, client, "quic_recv_window_defaults.json", true)
 
-	conn, err := client.DialEarly(context.Background(), M.ParseSocksaddrHostPort("127.0.0.1", 18301))
+	conn, err := client.DialEarly(context.Background(), M.ParseSocksaddrHostPort("127.0.0.1", echoPort))
 	require.NoError(t, err)
 
 	testData := []byte("quic default window test")
@@ -277,8 +273,9 @@ func TestQUICReceiveWindowDefaults(t *testing.T) {
 }
 
 func TestQUICInsecureConcurrencyRejected(t *testing.T) {
+	naiveQUICServerPort := reserveUDPPort(t)
 	_, err := cronet.NewNaiveClient(cronet.NaiveClientOptions{
-		ServerAddress:       M.ParseSocksaddrHostPort("127.0.0.1", 10002),
+		ServerAddress:       M.ParseSocksaddrHostPort("127.0.0.1", naiveQUICServerPort),
 		DNSResolver:         localhostDNSResolver(t),
 		QUIC:                true,
 		InsecureConcurrency: 2,
@@ -287,7 +284,7 @@ func TestQUICInsecureConcurrencyRejected(t *testing.T) {
 	require.Contains(t, err.Error(), "insecure concurrency is not supported with QUIC")
 
 	client, err := cronet.NewNaiveClient(cronet.NaiveClientOptions{
-		ServerAddress:       M.ParseSocksaddrHostPort("127.0.0.1", 10002),
+		ServerAddress:       M.ParseSocksaddrHostPort("127.0.0.1", naiveQUICServerPort),
 		DNSResolver:         localhostDNSResolver(t),
 		QUIC:                true,
 		InsecureConcurrency: 1,
@@ -306,14 +303,13 @@ func TestHTTP2StreamReceiveWindowCustom(t *testing.T) {
 
 	env := setupTestEnv(t)
 	client := env.newNaiveClient(t, cronet.NaiveClientOptions{
-		DNSResolver:         localhostDNSResolver(t),
-		StreamReceiveWindow: customStreamWindow,
+		DNSResolver:   localhostDNSResolver(t),
+		ReceiveWindow: customStreamWindow,
 	})
 
 	startEchoServer(t, 18302)
 
-	netLogPath := filepath.Join(t.TempDir(), "http2_custom_stream_window.json")
-	require.True(t, client.Engine().StartNetLogToFile(netLogPath, true))
+	netLogPath := startNetLogForTest(t, client, "http2_custom_stream_window.json", true)
 
 	conn, err := client.DialEarly(context.Background(), M.ParseSocksaddrHostPort("127.0.0.1", 18302))
 	require.NoError(t, err)

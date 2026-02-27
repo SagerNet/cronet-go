@@ -75,7 +75,7 @@ func (p EngineParams) SetUseDnsHttpsSvcb(enable bool) error {
 	})
 }
 
-func (p EngineParams) SetHTTP2Options(sessionMaxReceiveWindowSize, initialWindowSize int) error {
+func (p EngineParams) SetHTTP2Options(sessionMaxReceiveWindowSize, initialWindowSize uint64) error {
 	return p.SetExperimentalOption("HTTP2Options", map[string]any{
 		"session_max_recv_window_size": sessionMaxReceiveWindowSize,
 		"initial_window_size":          initialWindowSize,
