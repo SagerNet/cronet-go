@@ -50,6 +50,7 @@ type NaiveClient struct {
 	serverName              string
 	serverURL               string
 	authorization           string
+	concurrency             int
 	extraHeaders            map[string]string
 	trustedRootCertificates string
 	dnsResolver             DNSResolverFunc
@@ -60,7 +61,8 @@ type NaiveClient struct {
 	testForceUDPLoopback    bool
 	quicEnabled             bool
 	quicCongestionControl   QUICCongestionControl
-	concurrency             int
+	streamReceiveWindow     int
+	sessionReceiveWindow    int
 	counter                 atomic.Uint64
 	started                 chan struct{}
 	engine                  Engine
@@ -88,6 +90,8 @@ type NaiveClientOptions struct {
 	TestForceUDPLoopback    bool
 	QUIC                    bool
 	QUICCongestionControl   QUICCongestionControl
+	StreamReceiveWindow     int
+	SessionReceiveWindow    int
 }
 
 func NewNaiveClient(config NaiveClientOptions) (*NaiveClient, error) {
@@ -100,6 +104,9 @@ func NewNaiveClient(config NaiveClientOptions) (*NaiveClient, error) {
 	}
 	if config.DNSResolver == nil {
 		return nil, E.New("DNSResolver is required")
+	}
+	if config.QUIC && config.InsecureConcurrency > 1 {
+		return nil, E.New("insecure concurrency is not supported with QUIC")
 	}
 
 	serverName := config.ServerName
@@ -147,6 +154,7 @@ func NewNaiveClient(config NaiveClientOptions) (*NaiveClient, error) {
 		serverURL:               serverURL.String(),
 		authorization:           authorization,
 		extraHeaders:            config.ExtraHeaders,
+		concurrency:             concurrency,
 		trustedRootCertificates: config.TrustedRootCertificates,
 		dnsResolver:             config.DNSResolver,
 		echEnabled:              config.ECHEnabled,
@@ -155,7 +163,8 @@ func NewNaiveClient(config NaiveClientOptions) (*NaiveClient, error) {
 		testForceUDPLoopback:    config.TestForceUDPLoopback,
 		quicEnabled:             config.QUIC,
 		quicCongestionControl:   config.QUICCongestionControl,
-		concurrency:             concurrency,
+		streamReceiveWindow:     config.StreamReceiveWindow,
+		sessionReceiveWindow:    config.SessionReceiveWindow,
 		started:                 make(chan struct{}),
 	}, nil
 }
@@ -341,21 +350,43 @@ func (c *NaiveClient) Start() error {
 		return startError
 	}
 
-	if c.quicCongestionControl != "" {
-		startError = params.SetExperimentalOption("QUIC", map[string]any{
-			"connection_options": string(c.quicCongestionControl),
-		})
+	if c.quicEnabled {
+		quicOptions := map[string]any{}
+		if c.quicCongestionControl != "" {
+			quicOptions["connection_options"] = string(c.quicCongestionControl)
+		}
+		streamReceiveWindow := c.streamReceiveWindow
+		if streamReceiveWindow == 0 {
+			streamReceiveWindow = 8 * 1024 * 1024
+		}
+		sessionReceiveWindow := c.sessionReceiveWindow
+		if sessionReceiveWindow == 0 {
+			sessionReceiveWindow = 20 * 1024 * 1024
+		}
+		quicOptions["initial_stream_recv_window_size"] = streamReceiveWindow
+		quicOptions["initial_session_recv_window_size"] = sessionReceiveWindow
+		startError = params.SetExperimentalOption("QUIC", quicOptions)
 		if startError != nil {
 			return startError
 		}
-	}
-
-	if !c.quicEnabled {
-		if runtime.GOOS == "ios" {
-			startError = params.SetHTTP2Options(16777216, 8388608) // 16 MB session, 8 MB stream
-		} else {
-			startError = params.SetHTTP2Options(134217728, 67108864) // 128 MB session, 64 MB stream
+	} else {
+		if c.quicCongestionControl != "" {
+			startError = params.SetExperimentalOption("QUIC", map[string]any{
+				"connection_options": string(c.quicCongestionControl),
+			})
+			if startError != nil {
+				return startError
+			}
 		}
+		streamReceiveWindow := c.streamReceiveWindow
+		if streamReceiveWindow == 0 {
+			if runtime.GOOS == "ios" {
+				streamReceiveWindow = 4 * 1024 * 1024
+			} else {
+				streamReceiveWindow = 128 * 1024 * 1024
+			}
+		}
+		startError = params.SetHTTP2Options(streamReceiveWindow, streamReceiveWindow/2)
 		if startError != nil {
 			return startError
 		}

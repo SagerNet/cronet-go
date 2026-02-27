@@ -905,3 +905,46 @@ func TestServerAddressDomainWithNXDomainServerName(t *testing.T) {
 
 	t.Log("NXDOMAIN redirect test passed: connection used ServerAddress IP despite ServerName NXDOMAIN")
 }
+
+// TestCloseAllConnections verifies that after calling CloseAllConnections(),
+// new connections can still be established (connection pools are re-created on demand).
+func TestCloseAllConnections(t *testing.T) {
+	env := setupTestEnv(t)
+	startEchoServer(t, 18200)
+
+	client := env.newNaiveClient(t, cronet.NaiveClientOptions{
+		DNSResolver: localhostDNSResolver(t),
+	})
+
+	// Phase 1: establish a connection and verify it works
+	conn1, err := client.DialEarly(context.Background(), M.ParseSocksaddrHostPort("127.0.0.1", 18200))
+	require.NoError(t, err)
+
+	testData := []byte("before CloseAllConnections")
+	_, err = conn1.Write(testData)
+	require.NoError(t, err)
+
+	buf := make([]byte, len(testData))
+	_, err = io.ReadFull(conn1, buf)
+	require.NoError(t, err)
+	require.Equal(t, testData, buf)
+
+	conn1.Close()
+
+	// Phase 2: close all connection pools
+	client.Engine().CloseAllConnections()
+
+	// Phase 3: verify new connections still work after pool reset
+	conn2, err := client.DialEarly(context.Background(), M.ParseSocksaddrHostPort("127.0.0.1", 18200))
+	require.NoError(t, err)
+	defer conn2.Close()
+
+	testData2 := []byte("after CloseAllConnections")
+	_, err = conn2.Write(testData2)
+	require.NoError(t, err)
+
+	buf2 := make([]byte, len(testData2))
+	_, err = io.ReadFull(conn2, buf2)
+	require.NoError(t, err)
+	require.Equal(t, testData2, buf2)
+}
