@@ -355,10 +355,6 @@ func (c *NaiveClient) Start() error {
 	}
 
 	if c.quicEnabled {
-		quicOptions := map[string]any{}
-		if c.quicCongestionControl != "" {
-			quicOptions["connection_options"] = string(c.quicCongestionControl)
-		}
 		streamReceiveWindow := c.receiveWindow
 		if streamReceiveWindow == 0 {
 			streamReceiveWindow = 8 * 1024 * 1024
@@ -367,17 +363,13 @@ func (c *NaiveClient) Start() error {
 		if sessionReceiveWindow == 0 {
 			sessionReceiveWindow = 20 * 1024 * 1024
 		}
-		quicOptions["initial_stream_recv_window_size"] = streamReceiveWindow
-		quicOptions["initial_session_recv_window_size"] = sessionReceiveWindow
-		startError = params.SetExperimentalOption("QUIC", quicOptions)
+		startError = params.SetQUICOptions(string(c.quicCongestionControl), streamReceiveWindow, sessionReceiveWindow)
 		if startError != nil {
 			return startError
 		}
 	} else {
 		if c.quicCongestionControl != "" {
-			startError = params.SetExperimentalOption("QUIC", map[string]any{
-				"connection_options": string(c.quicCongestionControl),
-			})
+			startError = params.SetQUICOptions(string(c.quicCongestionControl), 0, 0)
 			if startError != nil {
 				return startError
 			}

@@ -82,6 +82,23 @@ func (p EngineParams) SetHTTP2Options(sessionMaxReceiveWindowSize, initialWindow
 	})
 }
 
+func (p EngineParams) SetQUICOptions(connectionOptions string, initialStreamRecvWindowSize, initialSessionRecvWindowSize uint64) error {
+	options := map[string]any{}
+	if connectionOptions != "" {
+		options["connection_options"] = connectionOptions
+	}
+	if initialStreamRecvWindowSize > 0 {
+		options["initial_stream_recv_window_size"] = initialStreamRecvWindowSize
+	}
+	if initialSessionRecvWindowSize > 0 {
+		options["initial_session_recv_window_size"] = initialSessionRecvWindowSize
+	}
+	if len(options) == 0 {
+		return p.SetExperimentalOption("QUIC", nil)
+	}
+	return p.SetExperimentalOption("QUIC", options)
+}
+
 func (p EngineParams) SetSocketPoolOptions(maxPerPool, maxPerProxyChain, maxPerGroup int) error {
 	return p.SetExperimentalOption("SocketPoolOptions", map[string]any{
 		"max_sockets_per_pool":        maxPerPool,
