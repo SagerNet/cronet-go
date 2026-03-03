@@ -36,6 +36,7 @@ type BidirectionalConn struct {
 	writeDone        chan struct{}
 	readDoneOnce     sync.Once
 	writeDoneOnce    sync.Once
+	trackedConn      *trackedNaiveConn
 }
 
 func (e StreamEngine) CreateConn(ctx context.Context, l logger.ContextLogger, readWaitHeaders bool, writeWaitHeaders bool) *BidirectionalConn {
@@ -224,6 +225,23 @@ func (c *BidirectionalConn) Done() <-chan struct{} {
 	return c.done
 }
 
+func (c *BidirectionalConn) bindTrackedNaiveConn(tracked *trackedNaiveConn) {
+	if tracked == nil {
+		return
+	}
+
+	c.access.Lock()
+	select {
+	case <-c.done:
+		c.access.Unlock()
+		tracked.release()
+		return
+	default:
+	}
+	c.trackedConn = tracked
+	c.access.Unlock()
+}
+
 func (c *BidirectionalConn) Err() error {
 	return c.err
 }
@@ -410,10 +428,16 @@ func (c *bidirectionalHandler) OnCanceled(stream BidirectionalStream) {
 
 func (c *bidirectionalHandler) Close(err error) {
 	c.doneOnce.Do(func() {
+		var tracked *trackedNaiveConn
 		c.access.Lock()
 		c.err = err
 		close(c.done)
+		tracked = c.trackedConn
 		c.access.Unlock()
+
+		if tracked != nil {
+			tracked.release()
+		}
 
 		c.destroyOnce.Do(func() {
 			c.stream.Destroy()

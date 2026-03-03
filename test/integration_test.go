@@ -945,3 +945,61 @@ func TestCloseAllConnections(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, testData2, buf2)
 }
+
+// TestCloseAllConnectionsThenClientClose verifies that calling
+// Engine().CloseAllConnections() on active connections does not leave
+// NaiveClient.Close() blocked forever.
+func TestCloseAllConnectionsThenClientClose(t *testing.T) {
+	env := setupTestEnv(t)
+	startEchoServer(t, 18201)
+
+	config := cronet.NaiveClientOptions{
+		ServerAddress:           M.ParseSocksaddrHostPort("127.0.0.1", naiveServerPort),
+		ServerName:              "example.org",
+		Username:                "test",
+		Password:                "test",
+		TrustedRootCertificates: string(env.caPEM),
+		DNSResolver:             localhostDNSResolver(t),
+	}
+
+	client, err := cronet.NewNaiveClient(config)
+	require.NoError(t, err)
+	require.NoError(t, client.Start())
+
+	conn, err := client.DialEarly(context.Background(), M.ParseSocksaddrHostPort("127.0.0.1", 18201))
+	require.NoError(t, err)
+
+	testData := []byte("before close-all")
+	_, err = conn.Write(testData)
+	require.NoError(t, err)
+
+	buf := make([]byte, len(testData))
+	_, err = io.ReadFull(conn, buf)
+	require.NoError(t, err)
+	require.Equal(t, testData, buf)
+
+	client.Engine().CloseAllConnections()
+
+	require.Eventually(t, func() bool {
+		_, writeErr := conn.Write([]byte("probe after close-all"))
+		return writeErr != nil
+	}, 5*time.Second, 20*time.Millisecond, "connection should auto-close after CloseAllConnections()")
+
+	closeDone := make(chan error, 1)
+	go func() {
+		closeDone <- client.Close()
+	}()
+
+	select {
+	case closeErr := <-closeDone:
+		require.NoError(t, closeErr)
+	case <-time.After(5 * time.Second):
+		// Ensure test cleanup can progress even in the failure path.
+		_ = conn.Close()
+		select {
+		case <-closeDone:
+		case <-time.After(5 * time.Second):
+		}
+		t.Fatal("client.Close() timed out after Engine().CloseAllConnections()")
+	}
+}

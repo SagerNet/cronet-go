@@ -460,6 +460,7 @@ func (c *NaiveClient) DialEarly(ctx context.Context, destination M.Socksaddr) (N
 		client:    c,
 	}
 	c.activeConnections.Add(1)
+	conn.bindTrackedNaiveConn(trackedConn)
 	return trackedConn, nil
 }
 
@@ -543,9 +544,13 @@ type trackedNaiveConn struct {
 	closeOnce sync.Once
 }
 
-func (c *trackedNaiveConn) Close() error {
+func (c *trackedNaiveConn) release() {
 	c.closeOnce.Do(func() {
 		c.client.activeConnections.Done()
 	})
+}
+
+func (c *trackedNaiveConn) Close() error {
+	c.release()
 	return c.NaiveConn.Close()
 }
