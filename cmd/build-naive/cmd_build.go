@@ -278,7 +278,7 @@ func buildTarget(t Target) {
 			"use_sysroot=false",
 			"default_min_sdk_version=23",
 			"is_high_end_android=true",
-			"android_ndk_major_version=28",
+
 		)
 	case "ios":
 		platform := t.Platform
