@@ -54,8 +54,10 @@ func doLoadLibrary(path string) error {
 func findLibrary() string {
 	libName := "libcronet.dll"
 
-	searchPaths := []string{
-		filepath.Dir(os.Args[0]),
+	var searchPaths []string
+	executablePath, err := os.Executable()
+	if err == nil {
+		searchPaths = append(searchPaths, filepath.Dir(executablePath))
 	}
 
 	if pathEnv := os.Getenv("PATH"); pathEnv != "" {

@@ -67,8 +67,10 @@ func findLibrary() string {
 		return ""
 	}
 
-	searchPaths := []string{
-		filepath.Dir(os.Args[0]),
+	var searchPaths []string
+	executablePath, err := os.Executable()
+	if err == nil {
+		searchPaths = append(searchPaths, filepath.Dir(executablePath))
 	}
 
 	if ldPath := os.Getenv("LD_LIBRARY_PATH"); ldPath != "" {
