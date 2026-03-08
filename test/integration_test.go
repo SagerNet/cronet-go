@@ -913,6 +913,8 @@ func TestCloseAllConnections(t *testing.T) {
 		DNSResolver: localhostDNSResolver(t),
 	})
 
+	startNetLogForTest(t, client, "close_all_connections_netlog.json", false)
+
 	// Phase 1: establish a connection and verify it works
 	conn1, err := client.DialEarly(context.Background(), M.ParseSocksaddrHostPort("127.0.0.1", 18200))
 	require.NoError(t, err)
@@ -966,6 +968,14 @@ func TestCloseAllConnectionsThenClientClose(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, client.Start())
 
+	// Start netlog manually (not via startNetLogForTest) because this test
+	// calls client.Close() in the test body, which destroys the engine.
+	// A t.Cleanup-based StopNetLog would crash on the already-destroyed engine.
+	if shouldCaptureNetLog() {
+		netLogPath := artifactPath(t, "netlog", "close_all_then_client_close_netlog.json")
+		client.Engine().StartNetLogToFile(netLogPath, true)
+	}
+
 	conn, err := client.DialEarly(context.Background(), M.ParseSocksaddrHostPort("127.0.0.1", 18201))
 	require.NoError(t, err)
 
@@ -984,6 +994,8 @@ func TestCloseAllConnectionsThenClientClose(t *testing.T) {
 		_, writeErr := conn.Write([]byte("probe after close-all"))
 		return writeErr != nil
 	}, 5*time.Second, 20*time.Millisecond, "connection should auto-close after CloseAllConnections()")
+
+	client.Engine().StopNetLog()
 
 	closeDone := make(chan error, 1)
 	go func() {
