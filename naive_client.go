@@ -117,7 +117,7 @@ func NewNaiveClient(config NaiveClientOptions) (*NaiveClient, error) {
 
 	serverURL := &url.URL{
 		Scheme: "https",
-		Host:   F.ToString(serverName, ":", config.ServerAddress.Port),
+		Host:   net.JoinHostPort(serverName, F.ToString(config.ServerAddress.Port)),
 	}
 
 	var authorization string
