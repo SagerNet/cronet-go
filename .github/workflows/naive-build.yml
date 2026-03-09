@@ -123,6 +123,7 @@ jobs:
             lib/
             include/
             include_cgo.go
+            lib_*_cgo.go
 
   darwin:
     runs-on: macos-15
@@ -202,6 +203,7 @@ jobs:
             lib/
             include/
             include_cgo.go
+            lib_*_cgo.go
 
   windows:
     runs-on: windows-2022
@@ -370,6 +372,7 @@ jobs:
             lib/
             include/
             include_cgo.go
+            lib_*_cgo.go
 
   linux-musl:
     runs-on: ubuntu-24.04
@@ -463,6 +466,7 @@ jobs:
             lib/
             include/
             include_cgo.go
+            lib_*_cgo.go
 
   integration-test:
     if: github.event_name != 'workflow_dispatch'
@@ -541,24 +545,12 @@ jobs:
           name: ${{ matrix.artifact }}
           path: .
 
-      - name: Get naiveproxy commit
-        id: naive
-        shell: bash
-        run: echo "commit=$(git -C naiveproxy rev-parse HEAD)" >> $GITHUB_OUTPUT
-
       - name: Get Chromium version
         id: chromium
         shell: bash
         run: echo "version=$(cat naiveproxy/CHROMIUM_VERSION)" >> $GITHUB_OUTPUT
 
-      # Linux: restore build cache and toolchain cache (needed for env command)
-      - name: Restore build cache (Linux)
-        if: runner.os == 'Linux'
-        uses: actions/cache/restore@v4
-        with:
-          path: naiveproxy/src/out
-          key: naive-build-${{ steps.naive.outputs.commit }}-${{ hashFiles('cmd/build-naive/cmd_build.go', 'cmd/build-naive/cmd.go') }}-linux-${{ contains(matrix.target, 'arm64') && 'arm64' || 'amd64' }}
-
+      # Linux: restore toolchain cache (needed for env command)
       - name: Restore toolchain cache (Linux)
         if: runner.os == 'Linux'
         uses: actions/cache/restore@v4
@@ -575,14 +567,6 @@ jobs:
         if: runner.os == 'Linux'
         run: go run ./cmd/build-naive --target=${{ matrix.target }} download-toolchain
 
-      # Darwin: restore build cache (needed for env command)
-      - name: Restore build cache (macOS)
-        if: runner.os == 'macOS'
-        uses: actions/cache/restore@v4
-        with:
-          path: naiveproxy/src/out
-          key: naive-build-${{ steps.naive.outputs.commit }}-${{ hashFiles('cmd/build-naive/cmd_build.go', 'cmd/build-naive/cmd.go') }}-${{ contains(matrix.target, 'amd64') && 'darwin-amd64' || 'darwin-arm64' }}
-
       # Install iperf3
       - name: Install iperf3 (Linux)
         if: runner.os == 'Linux'
@@ -597,11 +581,6 @@ jobs:
       - name: Install iperf3 (Windows)
         if: runner.os == 'Windows'
         run: choco install iperf3
-
-      # Generate package --local files
-      - name: Package (non-Windows)
-        if: runner.os != 'Windows'
-        run: go run ./cmd/build-naive --target=${{ matrix.target }} package --local
 
       # CGO mode tests
       - name: Run integration tests (CGO)
