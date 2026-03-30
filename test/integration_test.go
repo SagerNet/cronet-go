@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -712,8 +714,17 @@ func TestNaiveInsecureConcurrencySessionCount(t *testing.T) {
 	require.NoError(t, err)
 	logStr := string(logContent)
 
-	// Count HTTP2_SESSION_INITIALIZED events (type 249 in NetLog)
-	sessionCount := strings.Count(logStr, `"type":249`)
+	// Parse NetLog JSON to find the HTTP2_SESSION_INITIALIZED type ID
+	// (the numeric ID changes across Chromium versions).
+	var netLog struct {
+		Constants struct {
+			LogEventTypes map[string]int `json:"logEventTypes"`
+		} `json:"constants"`
+	}
+	require.NoError(t, json.Unmarshal(logContent, &netLog))
+	typeID, ok := netLog.Constants.LogEventTypes["HTTP2_SESSION_INITIALIZED"]
+	require.True(t, ok, "HTTP2_SESSION_INITIALIZED not found in NetLog constants")
+	sessionCount := strings.Count(logStr, fmt.Sprintf(`"type":%d`, typeID))
 	require.GreaterOrEqual(t, sessionCount, 3,
 		"Expected at least 3 HTTP/2 sessions with InsecureConcurrency=3, got %d. NetLog: %s",
 		sessionCount, netLogPath)

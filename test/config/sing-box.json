@@ -3,7 +3,7 @@
     {
       "type": "naive",
       "listen": "::",
-      "listen_port": 10000,
+      "listen_port": 10443,
       "users": [
         {
           "username": "test",

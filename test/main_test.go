@@ -37,7 +37,7 @@ import (
 )
 
 const (
-	naiveServerPort = 10000
+	naiveServerPort = 10443
 	iperf3Port      = 5201
 	forwardPort     = 15201
 )
