@@ -98,7 +98,7 @@ func (p *paddingConn) writeWithPadding(writer io.Writer, data []byte) (n int, er
 		header[2] = byte(paddingSize)
 		common.Must1(buffer.Write(data))
 		if paddingSize > 0 {
-			buffer.Extend(paddingSize)
+			common.Must(buffer.WriteZeroN(paddingSize))
 		}
 		_, err = writer.Write(buffer.Bytes())
 		if err == nil {
@@ -122,7 +122,7 @@ func (p *paddingConn) writeBufferWithPadding(writer io.Writer, buffer *buf.Buffe
 		binary.BigEndian.PutUint16(header, uint16(bufferLen))
 		header[2] = byte(paddingSize)
 		if paddingSize > 0 {
-			buffer.Extend(paddingSize)
+			common.Must(buffer.WriteZeroN(paddingSize))
 		}
 		p.writePadding++
 	}
