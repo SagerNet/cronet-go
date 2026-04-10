@@ -323,12 +323,14 @@ func (c *NaiveClient) Start() error {
 			return NetErrorConnectionFailed.Code(), "", 0
 		}
 
+		remoteAddress := M.SocksaddrFromNet(conn.RemoteAddr())
+		packetConn := bufio.NewUnbindPacketConn(conn)
+		pipePacketConn := bufio.NewUnbindPacketConnWithAddr(pipeConn.(net.Conn), remoteAddress)
+
 		c.proxyWaitGroup.Add(1)
 		go func() {
 			defer c.proxyWaitGroup.Done()
-			bufio.CopyConn(proxyContext, conn, pipeConn.(net.Conn))
-			conn.Close()
-			pipeConn.Close()
+			_ = bufio.CopyPacketConn(proxyContext, packetConn, pipePacketConn)
 		}()
 
 		return fd, localAddress, localPort
