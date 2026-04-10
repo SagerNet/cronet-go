@@ -284,6 +284,10 @@ func (c *BidirectionalConn) RemoteAddr() net.Addr {
 	return nil
 }
 
+func (c *BidirectionalConn) NeedAdditionalReadDeadline() bool {
+	return true
+}
+
 func (c *BidirectionalConn) SetDeadline(t time.Time) error {
 	return os.ErrInvalid
 }
