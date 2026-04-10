@@ -44,7 +44,7 @@ func sync() {
 		}
 	}
 
-	components := []string{"cronet", "grpc_support", "prefs"}
+	components := []string{"cronet", "prefs"}
 
 	for _, name := range components {
 		log.Printf("Downloading %s...", name)
@@ -79,8 +79,9 @@ func sync() {
 
 Downloaded from Chromium source:
 - components/cronet/
-- components/grpc_support/
 - components/prefs/
+
+The maintained grpc_support and native C API stay in-tree for cronet-go.
 
 Use 'go run ./cmd/build-naive sync' to re-download.`, version)
 
