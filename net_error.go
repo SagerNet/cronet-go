@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"os"
+	"sort"
 	"strconv"
 	"syscall"
 )
@@ -15,9 +16,19 @@ import (
 // Error codes are negative integers defined in Chromium's net/base/net_error_list.h.
 type NetError int
 
+func lookupNetError(e NetError) (*netErrorEntry, bool) {
+	i := sort.Search(len(netErrorInfo), func(i int) bool {
+		return netErrorInfo[i].code >= e
+	})
+	if i < len(netErrorInfo) && netErrorInfo[i].code == e {
+		return &netErrorInfo[i], true
+	}
+	return nil, false
+}
+
 // Error implements the error interface with a Go-style lowercase message.
 func (e NetError) Error() string {
-	if info, ok := netErrorInfo[e]; ok {
+	if info, ok := lookupNetError(e); ok {
 		return info.message
 	}
 	return "network error " + strconv.Itoa(int(e))
@@ -25,7 +36,7 @@ func (e NetError) Error() string {
 
 // Name returns the Chromium error name (e.g., "ERR_CONNECTION_REFUSED").
 func (e NetError) Name() string {
-	if info, ok := netErrorInfo[e]; ok {
+	if info, ok := lookupNetError(e); ok {
 		return info.name
 	}
 	return "ERR_UNKNOWN_" + strconv.Itoa(int(-e))
@@ -33,7 +44,7 @@ func (e NetError) Name() string {
 
 // Description returns the full description from Chromium source.
 func (e NetError) Description() string {
-	if info, ok := netErrorInfo[e]; ok {
+	if info, ok := lookupNetError(e); ok {
 		return info.description
 	}
 	return ""

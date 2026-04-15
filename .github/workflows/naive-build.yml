@@ -638,7 +638,7 @@ jobs:
           if-no-files-found: warn
 
   publish:
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && !contains(github.event.head_commit.message, '[skip publish]')
     needs: [linux, linux-musl, darwin, windows, android]
     runs-on: ubuntu-22.04
     env:

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"unicode"
@@ -183,22 +184,25 @@ const (
 	buffer.WriteString(`)
 
 type netErrorEntry struct {
+	code        NetError
 	name        string
 	message     string
 	description string
 }
 
-var netErrorInfo = map[NetError]netErrorEntry{
 `)
 
-	for _, entry := range errors {
+	sorted := make([]netErrorEntry, len(errors))
+	copy(sorted, errors)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].code < sorted[j].code })
+
+	buffer.WriteString(fmt.Sprintf("var netErrorInfo = [%d]netErrorEntry{\n", len(sorted)))
+	for _, entry := range sorted {
 		goName := "NetError" + netErrorNameToGoName(entry.name)
 		name := fmt.Sprintf("ERR_%s", entry.name)
-		buffer.WriteString(fmt.Sprintf("\t%s: {%q, %q, %q},\n", goName, name, entry.message, entry.description))
+		buffer.WriteString(fmt.Sprintf("\t{%s, %q, %q, %q},\n", goName, name, entry.message, entry.description))
 	}
-
-	buffer.WriteString(`}
-`)
+	buffer.WriteString("}\n")
 
 	formatted, err := format.Source(buffer.Bytes())
 	if err != nil {
