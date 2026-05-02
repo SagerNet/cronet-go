@@ -360,23 +360,17 @@ func (c *NaiveClient) Start() error {
 	if c.quicEnabled {
 		streamReceiveWindow := c.receiveWindow
 		if streamReceiveWindow == 0 {
-			streamReceiveWindow = 8 * 1024 * 1024
+			streamReceiveWindow = 6 * 1024 * 1024
 		}
 		sessionReceiveWindow := c.quicSessionReceiveWindow
 		if sessionReceiveWindow == 0 {
-			sessionReceiveWindow = 20 * 1024 * 1024
+			sessionReceiveWindow = 15 * 1024 * 1024
 		}
 		startError = params.SetQUICOptions(string(c.quicCongestionControl), streamReceiveWindow, sessionReceiveWindow)
 		if startError != nil {
 			return startError
 		}
 	} else {
-		if c.quicCongestionControl != "" {
-			startError = params.SetQUICOptions(string(c.quicCongestionControl), 0, 0)
-			if startError != nil {
-				return startError
-			}
-		}
 		receiveWindow := c.receiveWindow
 		if receiveWindow == 0 {
 			if runtime.GOOS == "ios" {
