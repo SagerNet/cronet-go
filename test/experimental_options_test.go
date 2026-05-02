@@ -226,8 +226,8 @@ func TestQUICReceiveWindowDefaults(t *testing.T) {
 	startNaiveQUICServer(t, certPem, keyPem, naiveQUICServerPort)
 
 	const (
-		defaultStreamWindow  = 8 * 1024 * 1024
-		defaultSessionWindow = 20 * 1024 * 1024
+		defaultStreamWindow  = 6 * 1024 * 1024
+		defaultSessionWindow = 15 * 1024 * 1024
 	)
 
 	client, err := cronet.NewNaiveClient(cronet.NaiveClientOptions{
