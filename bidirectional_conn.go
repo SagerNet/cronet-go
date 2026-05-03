@@ -105,6 +105,8 @@ func (c *BidirectionalConn) Read(p []byte) (n int, err error) {
 			break
 		case <-c.done:
 			return 0, c.err
+		case <-c.close:
+			return 0, net.ErrClosed
 		}
 	} else {
 		select {
@@ -112,6 +114,8 @@ func (c *BidirectionalConn) Read(p []byte) (n int, err error) {
 			break
 		case <-c.done:
 			return 0, c.err
+		case <-c.close:
+			return 0, net.ErrClosed
 		}
 	}
 
@@ -179,6 +183,8 @@ func (c *BidirectionalConn) Write(p []byte) (n int, err error) {
 			break
 		case <-c.done:
 			return 0, c.err
+		case <-c.close:
+			return 0, net.ErrClosed
 		}
 	} else {
 		select {
@@ -186,6 +192,8 @@ func (c *BidirectionalConn) Write(p []byte) (n int, err error) {
 			break
 		case <-c.done:
 			return 0, c.err
+		case <-c.close:
+			return 0, net.ErrClosed
 		}
 	}
 
@@ -314,6 +322,8 @@ func (c *BidirectionalConn) WaitForHeaders() (map[string]string, error) {
 		return c.headers, nil
 	case <-c.done:
 		return nil, c.err
+	case <-c.close:
+		return nil, net.ErrClosed
 	}
 }
 
