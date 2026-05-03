@@ -11,7 +11,6 @@ import (
 	"sync"
 	"sync/atomic"
 
-
 	"github.com/sagernet/sing/common/bufio"
 	E "github.com/sagernet/sing/common/exceptions"
 	F "github.com/sagernet/sing/common/format"
@@ -549,4 +548,16 @@ func (c *trackedNaiveConn) release() {
 func (c *trackedNaiveConn) Close() error {
 	c.release()
 	return c.NaiveConn.Close()
+}
+
+func (c *trackedNaiveConn) Upstream() any {
+	return c.NaiveConn
+}
+
+func (c *trackedNaiveConn) ReaderReplaceable() bool {
+	return true
+}
+
+func (c *trackedNaiveConn) WriterReplaceable() bool {
+	return true
 }
