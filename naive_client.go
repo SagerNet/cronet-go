@@ -455,7 +455,7 @@ func (c *NaiveClient) DialEarly(ctx context.Context, destination M.Socksaddr) (N
 		client:    c,
 	}
 	c.activeConnections.Add(1)
-	conn.bindTrackedNaiveConn(trackedConn)
+	conn.setOnTerminate(trackedConn.release)
 	return trackedConn, nil
 }
 
