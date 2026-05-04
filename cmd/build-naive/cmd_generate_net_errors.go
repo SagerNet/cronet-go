@@ -178,7 +178,7 @@ const (
 
 	for _, entry := range errors {
 		goName := "NetError" + netErrorNameToGoName(entry.name)
-		buffer.WriteString(fmt.Sprintf("\t%s NetError = %d\n", goName, entry.code))
+		fmt.Fprintf(&buffer, "\t%s NetError = %d\n", goName, entry.code)
 	}
 
 	buffer.WriteString(`)
@@ -196,11 +196,11 @@ type netErrorEntry struct {
 	copy(sorted, errors)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].code < sorted[j].code })
 
-	buffer.WriteString(fmt.Sprintf("var netErrorInfo = [%d]netErrorEntry{\n", len(sorted)))
+	fmt.Fprintf(&buffer, "var netErrorInfo = [%d]netErrorEntry{\n", len(sorted))
 	for _, entry := range sorted {
 		goName := "NetError" + netErrorNameToGoName(entry.name)
 		name := fmt.Sprintf("ERR_%s", entry.name)
-		buffer.WriteString(fmt.Sprintf("\t{%s, %q, %q, %q},\n", goName, name, entry.message, entry.description))
+		fmt.Fprintf(&buffer, "\t{%s, %q, %q, %q},\n", goName, name, entry.message, entry.description)
 	}
 	buffer.WriteString("}\n")
 
