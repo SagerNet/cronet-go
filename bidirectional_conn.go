@@ -17,7 +17,6 @@ type BidirectionalConn struct {
 	stream           BidirectionalStream
 	logger           logger.ContextLogger
 	cancelled        atomic.Bool
-	destroyOnce      sync.Once
 	readWaitHeaders  bool
 	writeWaitHeaders bool
 	access           sync.Mutex
@@ -61,17 +60,6 @@ func (e StreamEngine) CreateConn(ctx context.Context, l logger.ContextLogger, re
 	return conn
 }
 
-func (c *BidirectionalConn) checkClosed() error {
-	select {
-	case <-c.close:
-		return net.ErrClosed
-	case <-c.done:
-		return c.err
-	default:
-		return nil
-	}
-}
-
 func (c *BidirectionalConn) waitReady(waitHeaders bool) error {
 	var gate <-chan struct{}
 	if waitHeaders {
@@ -92,9 +80,6 @@ func (c *BidirectionalConn) waitReady(waitHeaders bool) error {
 func (c *BidirectionalConn) Start(method string, url string, headers map[string]string, priority int, endOfStream bool) error {
 	c.access.Lock()
 	defer c.access.Unlock()
-	if err := c.checkClosed(); err != nil {
-		return err
-	}
 	if !c.stream.Start(method, url, headers, priority, endOfStream) {
 		return os.ErrInvalid
 	}
@@ -120,9 +105,14 @@ func (c *BidirectionalConn) Read(p []byte) (n int, err error) {
 	}
 
 	c.access.Lock()
-	if err := c.checkClosed(); err != nil {
+	select {
+	case <-c.close:
 		c.access.Unlock()
-		return 0, err
+		return 0, net.ErrClosed
+	case <-c.done:
+		c.access.Unlock()
+		return 0, c.err
+	default:
 	}
 	c.stream.Read(p)
 	c.access.Unlock()
@@ -158,9 +148,14 @@ func (c *BidirectionalConn) Write(p []byte) (n int, err error) {
 	}
 
 	c.access.Lock()
-	if err := c.checkClosed(); err != nil {
+	select {
+	case <-c.close:
 		c.access.Unlock()
-		return 0, err
+		return 0, net.ErrClosed
+	case <-c.done:
+		c.access.Unlock()
+		return 0, c.err
+	default:
 	}
 	c.stream.Write(p, false)
 	c.access.Unlock()
@@ -182,10 +177,6 @@ func (c *BidirectionalConn) Done() <-chan struct{} {
 }
 
 func (c *BidirectionalConn) setOnTerminate(fn func()) {
-	if fn == nil {
-		return
-	}
-
 	c.access.Lock()
 	select {
 	case <-c.done:
@@ -222,14 +213,6 @@ func (c *BidirectionalConn) Close() error {
 		c.stream.Cancel()
 	}
 	return nil
-}
-
-func (c *BidirectionalConn) signalReadDone() {
-	c.readDoneOnce.Do(func() { close(c.readDone) })
-}
-
-func (c *BidirectionalConn) signalWriteDone() {
-	c.writeDoneOnce.Do(func() { close(c.writeDone) })
 }
 
 func (c *BidirectionalConn) LocalAddr() net.Addr {
@@ -302,7 +285,7 @@ func (c *bidirectionalHandler) OnReadCompleted(stream BidirectionalStream, bytes
 
 	if c.err != nil {
 		c.access.Unlock()
-		c.signalReadDone()
+		c.readDoneOnce.Do(func() { close(c.readDone) })
 		return
 	}
 
@@ -316,9 +299,9 @@ func (c *bidirectionalHandler) OnReadCompleted(stream BidirectionalStream, bytes
 
 	select {
 	case <-c.close:
-		c.signalReadDone()
+		c.readDoneOnce.Do(func() { close(c.readDone) })
 	case <-c.done:
-		c.signalReadDone()
+		c.readDoneOnce.Do(func() { close(c.readDone) })
 	case c.read <- bytesRead:
 	}
 }
@@ -328,7 +311,7 @@ func (c *bidirectionalHandler) OnWriteCompleted(stream BidirectionalStream) {
 
 	if c.err != nil {
 		c.access.Unlock()
-		c.signalWriteDone()
+		c.writeDoneOnce.Do(func() { close(c.writeDone) })
 		return
 	}
 
@@ -336,9 +319,9 @@ func (c *bidirectionalHandler) OnWriteCompleted(stream BidirectionalStream) {
 
 	select {
 	case <-c.close:
-		c.signalWriteDone()
+		c.writeDoneOnce.Do(func() { close(c.writeDone) })
 	case <-c.done:
-		c.signalWriteDone()
+		c.writeDoneOnce.Do(func() { close(c.writeDone) })
 	case c.write <- struct{}{}:
 	}
 }
@@ -347,10 +330,23 @@ func (c *bidirectionalHandler) OnResponseTrailersReceived(stream BidirectionalSt
 }
 
 func (c *bidirectionalHandler) terminate(err error) {
-	c.signalReadDone()
-	c.signalWriteDone()
+	c.readDoneOnce.Do(func() { close(c.readDone) })
+	c.writeDoneOnce.Do(func() { close(c.writeDone) })
 	c.cancelled.Store(true)
-	c.closeWithError(err)
+	c.doneOnce.Do(func() {
+		var onTerminate func()
+		c.access.Lock()
+		c.err = err
+		close(c.done)
+		onTerminate = c.onTerminate
+		c.access.Unlock()
+
+		if onTerminate != nil {
+			onTerminate()
+		}
+
+		c.stream.Destroy()
+	})
 }
 
 func (c *bidirectionalHandler) OnSucceeded(stream BidirectionalStream) {
@@ -365,23 +361,4 @@ func (c *bidirectionalHandler) OnFailed(stream BidirectionalStream, netError int
 func (c *bidirectionalHandler) OnCanceled(stream BidirectionalStream) {
 	c.logger.DebugContext(c.ctx, "stream canceled")
 	c.terminate(context.Canceled)
-}
-
-func (c *bidirectionalHandler) closeWithError(err error) {
-	c.doneOnce.Do(func() {
-		var onTerminate func()
-		c.access.Lock()
-		c.err = err
-		close(c.done)
-		onTerminate = c.onTerminate
-		c.access.Unlock()
-
-		if onTerminate != nil {
-			onTerminate()
-		}
-
-		c.destroyOnce.Do(func() {
-			c.stream.Destroy()
-		})
-	})
 }
