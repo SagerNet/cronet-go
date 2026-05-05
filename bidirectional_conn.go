@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/sagernet/sing/common/logger"
+	"github.com/sagernet/sing/common/pipe"
 )
 
 type BidirectionalConn struct {
@@ -35,6 +36,8 @@ type BidirectionalConn struct {
 	readDoneOnce     sync.Once
 	writeDoneOnce    sync.Once
 	onTerminate      func()
+	readDeadline     pipe.Deadline
+	writeDeadline    pipe.Deadline
 }
 
 func (e StreamEngine) CreateConn(ctx context.Context, l logger.ContextLogger, readWaitHeaders bool, writeWaitHeaders bool) *BidirectionalConn {
@@ -53,6 +56,8 @@ func (e StreamEngine) CreateConn(ctx context.Context, l logger.ContextLogger, re
 		writeSemaphore:   make(chan struct{}, 1),
 		readDone:         make(chan struct{}),
 		writeDone:        make(chan struct{}),
+		readDeadline:     pipe.MakeDeadline(),
+		writeDeadline:    pipe.MakeDeadline(),
 	}
 	conn.readSemaphore <- struct{}{}
 	conn.writeSemaphore <- struct{}{}
@@ -60,7 +65,7 @@ func (e StreamEngine) CreateConn(ctx context.Context, l logger.ContextLogger, re
 	return conn
 }
 
-func (c *BidirectionalConn) waitReady(waitHeaders bool) error {
+func (c *BidirectionalConn) waitReady(waitHeaders bool, deadline <-chan struct{}) error {
 	var gate <-chan struct{}
 	if waitHeaders {
 		gate = c.handshake
@@ -74,6 +79,8 @@ func (c *BidirectionalConn) waitReady(waitHeaders bool) error {
 		return c.err
 	case <-c.close:
 		return net.ErrClosed
+	case <-deadline:
+		return os.ErrDeadlineExceeded
 	}
 }
 
@@ -100,7 +107,7 @@ func (c *BidirectionalConn) Read(p []byte) (n int, err error) {
 	}
 	defer func() { c.readSemaphore <- struct{}{} }()
 
-	if err := c.waitReady(c.readWaitHeaders); err != nil {
+	if err := c.waitReady(c.readWaitHeaders, c.readDeadline.Wait()); err != nil {
 		return 0, err
 	}
 
@@ -120,6 +127,17 @@ func (c *BidirectionalConn) Read(p []byte) (n int, err error) {
 	select {
 	case bytesRead := <-c.read:
 		return bytesRead, nil
+	case <-c.readDeadline.Wait():
+		if c.cancelled.CompareAndSwap(false, true) {
+			c.stream.Cancel()
+		}
+		for {
+			select {
+			case <-c.read:
+			case <-c.done:
+				return 0, os.ErrDeadlineExceeded
+			}
+		}
 	case <-c.done:
 		<-c.readDone
 		return 0, c.err
@@ -143,7 +161,7 @@ func (c *BidirectionalConn) Write(p []byte) (n int, err error) {
 	}
 	defer func() { c.writeSemaphore <- struct{}{} }()
 
-	if err := c.waitReady(c.writeWaitHeaders); err != nil {
+	if err := c.waitReady(c.writeWaitHeaders, c.writeDeadline.Wait()); err != nil {
 		return 0, err
 	}
 
@@ -163,6 +181,17 @@ func (c *BidirectionalConn) Write(p []byte) (n int, err error) {
 	select {
 	case <-c.write:
 		return len(p), nil
+	case <-c.writeDeadline.Wait():
+		if c.cancelled.CompareAndSwap(false, true) {
+			c.stream.Cancel()
+		}
+		for {
+			select {
+			case <-c.write:
+			case <-c.done:
+				return 0, os.ErrDeadlineExceeded
+			}
+		}
 	case <-c.done:
 		<-c.writeDone
 		return 0, c.err
@@ -223,20 +252,20 @@ func (c *BidirectionalConn) RemoteAddr() net.Addr {
 	return nil
 }
 
-func (c *BidirectionalConn) NeedAdditionalReadDeadline() bool {
-	return true
-}
-
 func (c *BidirectionalConn) SetDeadline(t time.Time) error {
-	return os.ErrInvalid
+	c.SetReadDeadline(t)
+	c.SetWriteDeadline(t)
+	return nil
 }
 
 func (c *BidirectionalConn) SetReadDeadline(t time.Time) error {
-	return os.ErrInvalid
+	c.readDeadline.Set(t)
+	return nil
 }
 
 func (c *BidirectionalConn) SetWriteDeadline(t time.Time) error {
-	return os.ErrInvalid
+	c.writeDeadline.Set(t)
+	return nil
 }
 
 func (c *BidirectionalConn) WaitForHeaders() (map[string]string, error) {
