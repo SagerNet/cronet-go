@@ -8,6 +8,7 @@ CLAUDE.md
 # Prebuilt libraries (committed to go branch only)
 /build-naive
 /lib/
-/include/
+/include/*
+!/include/dummy.go
 /cgo_*.go
 /lib_*_cgo.go
