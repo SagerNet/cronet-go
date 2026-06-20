@@ -56,7 +56,7 @@ jobs:
       - name: Install packages
         if: steps.build-cache.outputs.cache-hit != 'true'
         run: |
-          sudo apt update
+          sudo apt update || true
           sudo apt install -y ninja-build ccache
       - name: Reset ccache stats
         if: steps.build-cache.outputs.cache-hit != 'true'
@@ -85,7 +85,7 @@ jobs:
         run: go run ./cmd/build-naive --target=linux/${{ matrix.arch }} download-toolchain
       - name: Install QEMU for cross-platform testing
         run: |
-          sudo apt update
+          sudo apt update || true
           sudo apt install -y qemu-user-binfmt
       - name: Build test binary
         run: |
@@ -341,7 +341,7 @@ jobs:
       - name: Install packages
         if: steps.build-cache.outputs.cache-hit != 'true'
         run: |
-          sudo apt update
+          sudo apt update || true
           sudo apt install -y ninja-build ccache
       - name: Reset ccache stats
         if: steps.build-cache.outputs.cache-hit != 'true'
@@ -409,7 +409,7 @@ jobs:
       - name: Install packages
         if: steps.build-cache.outputs.cache-hit != 'true'
         run: |
-          sudo apt update
+          sudo apt update || true
           sudo apt install -y ninja-build zstd ccache
       - name: Reset ccache stats
         if: steps.build-cache.outputs.cache-hit != 'true'
@@ -438,7 +438,7 @@ jobs:
         run: go run ./cmd/build-naive --target=linux/${{ matrix.arch }} --libc=musl download-toolchain
       - name: Install QEMU for cross-platform testing
         run: |
-          sudo apt update
+          sudo apt update || true
           sudo apt install -y qemu-user-binfmt
       - name: Build test binary
         run: |
@@ -571,7 +571,7 @@ jobs:
       - name: Install iperf3 (Linux)
         if: runner.os == 'Linux'
         run: |
-          sudo apt update
+          sudo apt update || true
           sudo apt install -y iperf3
 
       - name: Install iperf3 (macOS)
