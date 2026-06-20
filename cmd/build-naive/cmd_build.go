@@ -109,12 +109,29 @@ func getOpenwrtConfig(t Target) openwrtConfig {
 			gccVer:    "12.3.0",
 		}
 	case "arm":
+		// One armv7 hard-float static lib is repackaged under every OpenWrt
+		// arm_cortex-* package arch (cortex-a5/a7/a8/a9/a15), and downstream
+		// (sing-box) links it into a single GOARM=7 binary shared across all of
+		// them. The lowest common denominator is therefore generic ARMv7-A +
+		// VFPv3-d16, hard-float, no NEON, and crucially NO Multiprocessing
+		// Extensions: Cortex-A8 has no MP ext, so the MP-only hint pldw (emitted
+		// by -mcpu=cortex-a9, e.g. from absl prefetch-for-write) would SIGILL on
+		// A8. We pin a generic -march=armv7-a baseline (no arm_cpu => no -mcpu),
+		// matching Go's GOARM=7 codegen. The cortex-a9_vfpv3-d16 SDK is kept only
+		// for its musl sysroot: it is the d16/no-NEON variant, matching the VFP
+		// register floor of the set (arm_cortex-a9_vfpv3-d16 has only 16 D-regs).
 		return openwrtConfig{
-			target:    "armsr",
-			subtarget: "armv7",
-			arch:      "arm_cortex-a15_neon-vfpv4",
+			target:    "mvebu",
+			subtarget: "cortexa9",
+			arch:      "arm_cortex-a9_vfpv3-d16",
 			release:   "23.05.5",
 			gccVer:    "12.3.0",
+			extraGNArgs: []string{
+				`arm_arch="armv7-a"`, // generic baseline; no arm_cpu avoids -mcpu=cortex-a9 (MP/pldw)
+				`arm_fpu="vfpv3-d16"`,
+				`arm_float_abi="hard"`,
+				`arm_use_neon=false`,
+			},
 		}
 	case "loong64":
 		// OpenWrt 24.10.0 is the first release with loongarch64 support
