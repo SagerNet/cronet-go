@@ -339,6 +339,7 @@ func (c *NaiveClient) Start() error {
 	if c.quicEnabled {
 		params.SetEnableQuic(true)
 	} else {
+		params.SetEnableQuic(false)
 		params.SetEnableHTTP2(true)
 	}
 
