@@ -446,7 +446,7 @@ func (c *NaiveClient) DialEarly(ctx context.Context, destination M.Socksaddr) (N
 		concurrencyIndex := int(c.counter.Add(1) % uint64(c.concurrency))
 		headers["-network-isolation-key"] = F.ToString("https://pool-", concurrencyIndex, ":443")
 	}
-	conn := c.streamEngine.CreateConn(ctx, c.logger, true, true)
+	conn := c.streamEngine.CreateConn(ctx, c.logger, true, false)
 	err := conn.Start("CONNECT", c.serverURL, headers, 0, false)
 	if err != nil {
 		return nil, err
