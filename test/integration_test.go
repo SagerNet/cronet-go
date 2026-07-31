@@ -616,7 +616,7 @@ func TestDNSInterceptionUDPLoopbackFallback(t *testing.T) {
 // TestDNSInterceptionDefaultPath verifies that DNS interception works
 // with the default platform-specific socketpair implementation.
 // - Unix: AF_UNIX SOCK_DGRAM socketpair
-// - Windows: AF_UNIX SOCK_STREAM + length-prefix framing
+// - Windows: IPv4 UDP loopback pair
 func TestDNSInterceptionDefaultPath(t *testing.T) {
 	env := setupTestEnv(t)
 	startEchoServer(t, 17009)
@@ -648,7 +648,7 @@ func TestDNSInterceptionDefaultPath(t *testing.T) {
 	client := env.newNaiveClient(t, cronet.NaiveClientOptions{
 		ServerAddress:        serverAddress,
 		DNSResolver:          countingResolver,
-		TestForceUDPLoopback: false, // Use default path (Unix SOCK_DGRAM or Windows framed)
+		TestForceUDPLoopback: false, // Use default path (Unix SOCK_DGRAM or Windows UDP loopback)
 	})
 
 	// Make a connection - this will trigger DNS resolution through default path

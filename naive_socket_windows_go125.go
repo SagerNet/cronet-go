@@ -85,7 +85,6 @@ func createUnixSocketPairWithName(name string) (cronetFD int, proxyConn net.Conn
 	if err != nil {
 		return -1, nil, err
 	}
-	// setUnixSocketBufferSize(clientSocket) // ineffective on Windows AF_UNIX
 	closeClientSocket := func() {
 		_ = windows.Closesocket(clientSocket)
 	}
@@ -120,7 +119,6 @@ func createUnixSocketPairWithName(name string) (cronetFD int, proxyConn net.Conn
 		return -1, nil, acceptError
 	}
 
-	// setUnixSocketBufferSize(acceptedSocket) // ineffective on Windows AF_UNIX
 	closeListenerSocket()
 	if name != "" && name[0] != '@' {
 		_ = os.Remove(name)
@@ -136,15 +134,6 @@ func createUnixSocketPairWithName(name string) (cronetFD int, proxyConn net.Conn
 
 	return int(clientSocket), proxyConn, nil
 }
-
-// setUnixSocketBufferSize is ineffective on Windows AF_UNIX sockets.
-// SO_SNDBUF/SO_RCVBUF are silently ignored.
-//
-// func setUnixSocketBufferSize(socket windows.Handle) {
-// 	const bufferSize = 2 * 1024 * 1024
-// 	_ = windows.SetsockoptInt(socket, windows.SOL_SOCKET, windows.SO_SNDBUF, bufferSize)
-// 	_ = windows.SetsockoptInt(socket, windows.SOL_SOCKET, windows.SO_RCVBUF, bufferSize)
-// }
 
 func randomHexString(byteCount int) (string, error) {
 	randomBytes := make([]byte, byteCount)

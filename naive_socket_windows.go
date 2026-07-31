@@ -4,86 +4,86 @@ package cronet
 
 import (
 	"net"
-	"syscall"
+	"os"
 
 	E "github.com/sagernet/sing/common/exceptions"
 
 	"golang.org/x/sys/windows"
 )
 
-func dupSocketFD(syscallConn syscall.Conn) (int, error) {
-	rawConn, err := syscallConn.SyscallConn()
+type fileConn interface {
+	File() (*os.File, error)
+}
+
+func dupSocketFD(conn fileConn) (int, error) {
+	// net.Conn.File first disassociates the source socket from Go's IOCP,
+	// then duplicates it with WSADuplicateSocket. This must happen before
+	// Cronet starts its own independent overlapped I/O on the socket.
+	file, err := conn.File()
 	if err != nil {
-		return -1, E.Cause(err, "get syscall conn")
+		return -1, E.Cause(err, "prepare socket for transfer")
 	}
-	var socket windows.Handle
-	var controlError error
-	err = rawConn.Control(func(fdPtr uintptr) {
-		currentProcess := windows.CurrentProcess()
-		duplicateError := windows.DuplicateHandle(
-			currentProcess,
-			windows.Handle(fdPtr),
-			currentProcess,
-			&socket,
-			0,
-			false,
-			windows.DUPLICATE_SAME_ACCESS,
-		)
-		if duplicateError != nil {
-			controlError = E.Cause(duplicateError, "duplicate socket handle")
-			return
-		}
-	})
+	defer file.Close()
+
+	socket := windows.InvalidHandle
+	var protocolInfo windows.WSAProtocolInfo
+	err = windows.WSADuplicateSocket(
+		windows.Handle(file.Fd()),
+		uint32(os.Getpid()),
+		&protocolInfo,
+	)
 	if err != nil {
-		if socket != 0 {
+		return -1, E.Cause(err, "duplicate Winsock protocol info")
+	}
+	socket, err = windows.WSASocket(
+		-1,
+		-1,
+		-1,
+		&protocolInfo,
+		0,
+		windows.WSA_FLAG_OVERLAPPED|windows.WSA_FLAG_NO_HANDLE_INHERIT,
+	)
+	if err != nil {
+		if socket != windows.InvalidHandle {
 			_ = windows.Closesocket(socket)
 		}
-		return -1, E.Cause(err, "control raw conn")
-	}
-	if controlError != nil {
-		return -1, controlError
+		return -1, E.Cause(err, "create duplicated Winsock socket")
 	}
 	return int(socket), nil
 }
 
 func createTCPLoopbackSocketPair() (cronetFD int, proxyConn net.Conn, err error) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	if err != nil {
 		return -1, nil, E.Cause(err, "create loopback listener")
 	}
 	defer listener.Close()
 
-	var clientConn net.Conn
-	var clientError error
-	done := make(chan struct{})
-	go func() {
-		clientConn, clientError = net.Dial("tcp", listener.Addr().String())
-		close(done)
-	}()
-
-	serverConn, err := listener.Accept()
+	socket, err := windows.WSASocket(
+		windows.AF_INET,
+		windows.SOCK_STREAM,
+		windows.IPPROTO_TCP,
+		nil,
+		0,
+		windows.WSA_FLAG_OVERLAPPED|windows.WSA_FLAG_NO_HANDLE_INHERIT,
+	)
 	if err != nil {
-		<-done
-		if clientConn != nil {
-			clientConn.Close()
-		}
+		return -1, nil, E.Cause(err, "create loopback socket")
+	}
+
+	listenerAddress := listener.Addr().(*net.TCPAddr)
+	sockaddr := &windows.SockaddrInet4{Port: listenerAddress.Port}
+	copy(sockaddr.Addr[:], listenerAddress.IP.To4())
+	if err = windows.Connect(socket, sockaddr); err != nil {
+		_ = windows.Closesocket(socket)
+		return -1, nil, E.Cause(err, "connect loopback socket")
+	}
+
+	serverConn, err := listener.AcceptTCP()
+	if err != nil {
+		_ = windows.Closesocket(socket)
 		return -1, nil, E.Cause(err, "accept loopback connection")
 	}
 
-	<-done
-	if clientError != nil {
-		serverConn.Close()
-		return -1, nil, E.Cause(clientError, "dial loopback")
-	}
-
-	tcpConn := serverConn.(*net.TCPConn)
-	fd, err := dupSocketFD(tcpConn)
-	if err != nil {
-		serverConn.Close()
-		clientConn.Close()
-		return -1, nil, E.Cause(err, "dup loopback socket")
-	}
-
-	serverConn.Close()
-	return fd, clientConn, nil
+	return int(socket), serverConn, nil
 }

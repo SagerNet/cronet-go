@@ -627,6 +627,15 @@ jobs:
             exit 1
           fi
 
+      - name: Stress QUIC socket handoff (Windows Server 2022)
+        if: matrix.name == 'windows-amd64-2022'
+        timeout-minutes: 10
+        working-directory: test
+        shell: bash
+        run: |
+          export PATH="$PWD/../lib/windows_amd64:$PATH"
+          go test -tags with_purego -run '^TestNaiveQUICLargeTransfer$' -count=20 -timeout=8m
+
       - name: Upload integration logs (test failure)
         if: always() && (failure() || cancelled())
         uses: actions/upload-artifact@v4

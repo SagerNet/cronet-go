@@ -7,20 +7,7 @@ import "net"
 func createPacketSocketPair(forceUDPLoopback bool) (cronetFD int, proxyConn net.PacketConn, err error) {
 	// AF_UNIX SOCK_STREAM on Windows is message-mode: each send() is an
 	// atomic message and recv() with a buffer smaller than the message
-	// returns WSAEMSGSIZE. This breaks the framed read protocol where
-	// C++ reads a 2-byte length header first. Use UDP loopback instead.
-	//
-	// if forceUDPLoopback {
-	// 	return createUDPLoopbackPair()
-	// }
-	//
-	// // Try Unix socket pair first (Go 1.25+ has FileConn support)
-	// cronetFD, streamConn, err := createUnixSocketPair()
-	// if err != nil {
-	// 	return createUDPLoopbackPair()
-	// }
-	//
-	// return cronetFD, newFramedPacketConn(streamConn), nil
-
+	// returns WSAEMSGSIZE. It cannot safely carry the 2-byte framed packet
+	// protocol, so always use a real UDP loopback pair.
 	return createUDPLoopbackPair()
 }
