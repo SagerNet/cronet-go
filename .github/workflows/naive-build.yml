@@ -93,7 +93,7 @@ jobs:
           if [ "${{ matrix.arch }}" = "mipsle" ] || [ "${{ matrix.arch }}" = "mips64le" ]; then
             GO_TEST_LDFLAGS=-ldflags=-w
           fi
-          CGO_ENABLED=1 GOOS=linux GOARCH=${{ matrix.arch }} go test -c $GO_TEST_LDFLAGS -o cronet.test .
+          CGO_ENABLED=1 GOOS=linux GOARCH=${{ matrix.arch }} go -C test test -c $GO_TEST_LDFLAGS -o ../cronet.test .
       - name: Run test binary
         run: |
           eval $(go run ./cmd/build-naive --target=linux/${{ matrix.arch }} env --export)
@@ -105,7 +105,7 @@ jobs:
         if: matrix.arch == 'amd64' || matrix.arch == 'arm64' || matrix.arch == 'loong64'
         run: |
           cp lib/linux_${{ matrix.arch }}/libcronet.so .
-          CGO_ENABLED=0 GOOS=linux GOARCH=${{ matrix.arch }} go test -tags with_purego -c -o cronet.purego.test .
+          CGO_ENABLED=0 GOOS=linux GOARCH=${{ matrix.arch }} go -C test test -tags with_purego -c -o ../cronet.purego.test .
       - name: Run purego test binary
         if: matrix.arch == 'amd64' || matrix.arch == 'arm64' || matrix.arch == 'loong64'
         run: |
@@ -193,7 +193,7 @@ jobs:
       - name: Build and run test binary
         if: matrix.target == 'darwin/arm64'
         run: |
-          CGO_ENABLED=1 go test -c -o cronet.test .
+          CGO_ENABLED=1 go -C test test -c -o ../cronet.test .
           ./cronet.test -test.v -test.run=TestEngineVersion
       - uses: actions/upload-artifact@v4
         with:
@@ -287,7 +287,7 @@ jobs:
           CGO_ENABLED=0 \
           GOOS=windows \
           GOARCH=${{ matrix.arch }} \
-          go test -tags with_purego -c -o cronet.test.exe .
+          go -C test test -tags with_purego -c -o ../cronet.test.exe .
           ./cronet.test.exe -test.v -test.run=TestEngineVersion
       - uses: actions/upload-artifact@v4
         with:
@@ -363,7 +363,7 @@ jobs:
       - name: Build test binary
         run: |
           CC=${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/${{ matrix.cc }} \
-          CGO_ENABLED=1 GOOS=android GOARCH=${{ matrix.arch }} go test -c -o cronet.test .
+          CGO_ENABLED=1 GOOS=android GOARCH=${{ matrix.arch }} go -C test test -c -o ../cronet.test .
       - uses: actions/upload-artifact@v4
         with:
           name: cronet-android-${{ matrix.arch }}
@@ -444,7 +444,7 @@ jobs:
           [[ "${{ matrix.arch }}" == "mipsle" ]] && export GOMIPS=softfloat || true
           GO_TEST_LDFLAGS=
           [[ "${{ matrix.arch }}" == "mipsle" ]] && GO_TEST_LDFLAGS=-ldflags=-w || true
-          CGO_ENABLED=1 GOOS=linux GOARCH=${{ matrix.arch }} go test -c $GO_TEST_LDFLAGS -tags with_musl -o cronet.test .
+          CGO_ENABLED=1 GOOS=linux GOARCH=${{ matrix.arch }} go -C test test -c $GO_TEST_LDFLAGS -tags with_musl -o ../cronet.test .
       - name: Run test binary
         run: |
           # Static binary - can run directly with QEMU binfmt or explicit QEMU for cross-arch
