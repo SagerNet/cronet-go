@@ -24,6 +24,10 @@ var (
 	localMode bool
 )
 
+const includePackageSource = `// Package include is a dummy package that prevents go tooling from stripping the C dependencies.
+package include
+`
+
 func init() {
 	mainCommand.AddCommand(commandPackage)
 	commandPackage.Flags().BoolVar(&localMode, "local", false, "Generate CGO files in main module for local testing")
@@ -38,6 +42,10 @@ func packageTargets(targets []Target) {
 	os.RemoveAll(libraryDirectory)
 	os.RemoveAll(includeDirectory)
 	os.MkdirAll(includeDirectory, 0o755)
+	includePackagePath := filepath.Join(includeDirectory, "dummy.go")
+	if err := os.WriteFile(includePackagePath, []byte(includePackageSource), 0o644); err != nil {
+		log.Fatalf("failed to write %s: %v", includePackagePath, err)
+	}
 
 	headers := []struct {
 		source      string

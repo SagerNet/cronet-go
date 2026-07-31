@@ -38,6 +38,7 @@ const (
 	NetErrorBlockedByFingerprintingProtection                     NetError = -34
 	NetErrorBlockedInIncognitoByAdministrator                     NetError = -35
 	NetErrorLocalNetworkPermissionMissing                         NetError = -36
+	NetErrorStrictECHRequired                                     NetError = -37
 	NetErrorConnectionClosed                                      NetError = -100
 	NetErrorConnectionReset                                       NetError = -101
 	NetErrorConnectionRefused                                     NetError = -102
@@ -202,6 +203,7 @@ const (
 	NetErrorCacheEntryNotSuitable                                 NetError = -411
 	NetErrorCacheDoomFailure                                      NetError = -412
 	NetErrorCacheOpenOrCreateFailure                              NetError = -413
+	NetErrorCacheCompressionFailure                               NetError = -414
 	NetErrorInsecureResponse                                      NetError = -501
 	NetErrorNoPrivateKeyForCert                                   NetError = -502
 	NetErrorAddUserCertFailed                                     NetError = -503
@@ -257,7 +259,7 @@ type netErrorEntry struct {
 	description string
 }
 
-var netErrorInfo = [243]netErrorEntry{
+var netErrorInfo = [245]netErrorEntry{
 	{NetErrorBlobReferencedFileUnavailable, "ERR_BLOB_REFERENCED_FILE_UNAVAILABLE", "blob referenced file unavailable", "A file that we referenced during construction is not accessible to the renderer trying to create the blob."},
 	{NetErrorBlobReferencedBlobBroken, "ERR_BLOB_REFERENCED_BLOB_BROKEN", "blob referenced blob broken", "A blob that we referenced during construction is broken, or a browser-side builder tries to build a blob with a blob reference that isn't finished constructing."},
 	{NetErrorBlobDereferencedWhileBuilding, "ERR_BLOB_DEREFERENCED_WHILE_BUILDING", "blob dereferenced while building", "The renderer destructed the blob before it was done transferring, and there were no outstanding references (no one is waiting to read) to keep the blob alive."},
@@ -304,6 +306,7 @@ var netErrorInfo = [243]netErrorEntry{
 	{NetErrorAddUserCertFailed, "ERR_ADD_USER_CERT_FAILED", "add user cert failed", "An error adding a certificate to the OS certificate database."},
 	{NetErrorNoPrivateKeyForCert, "ERR_NO_PRIVATE_KEY_FOR_CERT", "no private key for cert", "An attempt to import a client certificate failed, as the user's key database lacked a corresponding private key."},
 	{NetErrorInsecureResponse, "ERR_INSECURE_RESPONSE", "insecure response", "The server's response was insecure (e.g. there was a cert error)."},
+	{NetErrorCacheCompressionFailure, "ERR_CACHE_COMPRESSION_FAILURE", "cache compression failure", "Zstd compression of a cache entry body failed."},
 	{NetErrorCacheOpenOrCreateFailure, "ERR_CACHE_OPEN_OR_CREATE_FAILURE", "cache open or create failure", "The disk cache is unable to open or create this entry."},
 	{NetErrorCacheDoomFailure, "ERR_CACHE_DOOM_FAILURE", "cache doom failure", "The disk cache is unable to doom this entry."},
 	{NetErrorCacheEntryNotSuitable, "ERR_CACHE_ENTRY_NOT_SUITABLE", "cache entry not suitable", "Internal not-quite error code for the HTTP cache. In-memory hints suggest that the cache entry would not have been usable with the transaction's current configuration (e.g. load flags, mode, etc.)"},
@@ -468,6 +471,7 @@ var netErrorInfo = [243]netErrorEntry{
 	{NetErrorConnectionRefused, "ERR_CONNECTION_REFUSED", "connection refused", "A connection attempt was refused."},
 	{NetErrorConnectionReset, "ERR_CONNECTION_RESET", "connection reset", "A connection was reset (corresponding to a TCP RST)."},
 	{NetErrorConnectionClosed, "ERR_CONNECTION_CLOSED", "connection closed", "A connection was closed (corresponding to a TCP FIN)."},
+	{NetErrorStrictECHRequired, "ERR_STRICT_ECH_REQUIRED", "strict ech required", "The request was blocked because ECH is strictly required, but: - The client could not obtain a valid ECH configuration. - The server rejected the ECH, and the client failed to establish a new ECH connection after retrying with retry_configs."},
 	{NetErrorLocalNetworkPermissionMissing, "ERR_LOCAL_NETWORK_PERMISSION_MISSING", "local network permission missing", "The request was blocked because the local network permission is missing. Note that this is different from BLOCKED_BY_LOCAL_NETWORK_ACCESS_CHECKS which is specifically for a CORS error code."},
 	{NetErrorBlockedInIncognitoByAdministrator, "ERR_BLOCKED_IN_INCOGNITO_BY_ADMINISTRATOR", "blocked in incognito by administrator", "The request was blocked by the Incognito Mode URL block list configured by the domain administrator."},
 	{NetErrorBlockedByFingerprintingProtection, "ERR_BLOCKED_BY_FINGERPRINTING_PROTECTION", "blocked by fingerprinting protection", "The request was blocked by fingerprinting protections."},

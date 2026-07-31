@@ -914,6 +914,22 @@ func TestServerAddressDomainWithNXDomainServerName(t *testing.T) {
 	t.Log("NXDOMAIN redirect test passed: connection used ServerAddress IP despite ServerName NXDOMAIN")
 }
 
+func TestCloseAllConnectionsBeforeStart(t *testing.T) {
+	engine := cronet.NewEngine()
+	done := make(chan struct{})
+	go func() {
+		engine.CloseAllConnections()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		engine.Destroy()
+	case <-time.After(time.Second):
+		t.Fatal("CloseAllConnections blocked before engine start")
+	}
+}
+
 // TestCloseAllConnections verifies that after calling CloseAllConnections(),
 // new connections can still be established (connection pools are re-created on demand).
 func TestCloseAllConnections(t *testing.T) {

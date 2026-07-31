@@ -18,7 +18,7 @@ func TestEngineVersion(t *testing.T) {
 
 	version := engine.Version()
 	fmt.Printf("Cronet Engine Version: %s\n", version)
-	if version == "" {
-		t.Fatal("engine version is empty")
+	if version != "150.0.7871.63" {
+		t.Fatalf("unexpected engine version: %q", version)
 	}
 }

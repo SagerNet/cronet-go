@@ -41,7 +41,7 @@ func init() {
 		fd, localAddress, localPort := dialer(cronet.GoString(address), port)
 
 		// Write output parameters using unsafe
-		if outLocalAddress != 0 && localAddress != "" {
+		if outLocalAddress != 0 && localAddress != "" && len(localAddress) < dialerLocalAddressCapacity {
 			localAddressBytes := []byte(localAddress)
 			for i, b := range localAddressBytes {
 				*(*byte)(unsafe.Add(unsafe.Pointer(outLocalAddress), i)) = b

@@ -307,3 +307,6 @@ type Dialer func(address string, port uint16) int
 //
 // Cronet will NOT call connect() on the returned socket.
 type UDPDialer func(address string, port uint16) (fd int, localAddress string, localPort uint16)
+
+// INET6_ADDRSTRLEN is 46, including the trailing NUL byte.
+const dialerLocalAddressCapacity = 46

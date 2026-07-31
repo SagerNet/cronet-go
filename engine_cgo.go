@@ -7,8 +7,8 @@ package cronet
 // #include <string.h>
 // #include <cronet_c.h>
 //
-// extern CRONET_EXPORT int cronetDialerCallback(void* context, char* address, uint16_t port);
-// extern CRONET_EXPORT int cronetUdpDialerCallback(void* context, char* address, uint16_t port, char* out_local_address, uint16_t* out_local_port);
+// extern CRONET_EXPORT intptr_t cronetDialerCallback(void* context, char* address, uint16_t port);
+// extern CRONET_EXPORT intptr_t cronetUdpDialerCallback(void* context, char* address, uint16_t port, char* out_local_address, uint16_t* out_local_port);
 import "C"
 
 import (
@@ -24,18 +24,18 @@ var (
 )
 
 //export cronetDialerCallback
-func cronetDialerCallback(context unsafe.Pointer, address *C.char, port C.uint16_t) C.int {
+func cronetDialerCallback(context unsafe.Pointer, address *C.char, port C.uint16_t) C.intptr_t {
 	dialerAccess.RLock()
 	dialer, ok := dialerMap[uintptr(context)]
 	dialerAccess.RUnlock()
 	if !ok {
 		return -104 // ERR_CONNECTION_FAILED
 	}
-	return C.int(dialer(C.GoString(address), uint16(port)))
+	return C.intptr_t(dialer(C.GoString(address), uint16(port)))
 }
 
 //export cronetUdpDialerCallback
-func cronetUdpDialerCallback(context unsafe.Pointer, address *C.char, port C.uint16_t, outLocalAddress *C.char, outLocalPort *C.uint16_t) C.int {
+func cronetUdpDialerCallback(context unsafe.Pointer, address *C.char, port C.uint16_t, outLocalAddress *C.char, outLocalPort *C.uint16_t) C.intptr_t {
 	udpDialerAccess.RLock()
 	dialer, ok := udpDialerMap[uintptr(context)]
 	udpDialerAccess.RUnlock()
@@ -45,16 +45,17 @@ func cronetUdpDialerCallback(context unsafe.Pointer, address *C.char, port C.uin
 	fd, localAddress, localPort := dialer(C.GoString(address), uint16(port))
 
 	// Write output parameters
-	if outLocalAddress != nil && localAddress != "" {
+	if outLocalAddress != nil && localAddress != "" && len(localAddress) < dialerLocalAddressCapacity {
 		localAddressC := C.CString(localAddress)
-		C.strcpy(outLocalAddress, localAddressC)
+		C.memcpy(unsafe.Pointer(outLocalAddress), unsafe.Pointer(localAddressC), C.size_t(len(localAddress)))
+		*(*byte)(unsafe.Add(unsafe.Pointer(outLocalAddress), len(localAddress))) = 0
 		C.free(unsafe.Pointer(localAddressC))
 	}
 	if outLocalPort != nil {
 		*outLocalPort = C.uint16_t(localPort)
 	}
 
-	return C.int(fd)
+	return C.intptr_t(fd)
 }
 
 func NewEngine() Engine {

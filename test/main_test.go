@@ -42,7 +42,7 @@ const (
 	forwardPort     = 15201
 )
 
-const naiveServerVersion = "1.12.24"
+const naiveServerVersion = "1.13.15"
 
 func TestMain(m *testing.M) {
 	goleak.VerifyTestMain(m)
@@ -284,9 +284,15 @@ func ensureNaiveServer(t *testing.T) string {
 	}
 	binaryPath := filepath.Join(binDirectory, binaryName)
 
-	// Check if binary already exists
-	if _, err := os.Stat(binaryPath); err == nil {
-		return binaryPath
+	// Reuse the cached binary only when it is the version required by these
+	// tests. A plain existence check can silently run an older server after the
+	// pinned version is updated.
+	if output, err := exec.Command(binaryPath, "version").Output(); err == nil {
+		fields := strings.Fields(string(output))
+		if len(fields) >= 3 && fields[0] == "sing-box" && fields[1] == "version" && fields[2] == naiveServerVersion {
+			return binaryPath
+		}
+		t.Logf("Cached sing-box does not match v%s; downloading the requested version", naiveServerVersion)
 	}
 
 	// Download sing-box
