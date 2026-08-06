@@ -105,6 +105,11 @@ func printEnv(t Target) {
 		if t.ARCH == "386" || t.ARCH == "arm" || t.ARCH == "loong64" || t.ARCH == "mipsle" || t.ARCH == "mips64le" {
 			ldFlags = append(ldFlags, "-Wl,-no-pie")
 		}
+		// lld's LoongArch relaxation oscillates against thunk and alignment growth on
+		// libcronet-sized links, failing its address assignment fixed point
+		if t.ARCH == "loong64" {
+			ldFlags = append(ldFlags, "-Wl,--no-relax")
+		}
 		// Bullseye glibc CRT for MIPS marks GNU_STACK as executable; lld rejects by default
 		if (t.ARCH == "mipsle" || t.ARCH == "mips64le") && t.Libc != "musl" {
 			ldFlags = append(ldFlags, "-Wl,-z,execstack")
