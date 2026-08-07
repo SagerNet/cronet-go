@@ -98,9 +98,13 @@ Place the library file in the same directory as your executable:
 
 ### For Downstream Developers
 
-If you need to programmatically extract libraries from Go module dependencies (e.g., for CI/CD pipelines):
+The `go` branch holds the libraries. The same commit supplies the
+`github.com/sagernet/cronet-go/lib/*` modules. Pin this commit. Read the library file from it:
 
 ```bash
-go run github.com/sagernet/cronet-go/cmd/build-naive@latest extract-lib --target windows/amd64 -n libcronet_amd64.dll
-go run github.com/sagernet/cronet-go/cmd/build-naive@latest extract-lib --target linux/amd64 -n libcronet_amd64.so
+git init cronet-go-lib
+git -C cronet-go-lib remote add origin https://github.com/sagernet/cronet-go.git
+git -C cronet-go-lib sparse-checkout set --no-cone /lib/windows_amd64/libcronet.dll
+git -C cronet-go-lib fetch --depth=1 --filter=blob:none origin "$CRONET_GO_VERSION"
+git -C cronet-go-lib checkout FETCH_HEAD
 ```
