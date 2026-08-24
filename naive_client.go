@@ -255,6 +255,7 @@ func (c *NaiveClient) Start() error {
 			}
 		}
 
+		c.logger.DebugContext(c.ctx, "relaying TCP connection to ", destination)
 		fd, pipeConn, err := createSocketPair()
 		if err != nil {
 			c.logger.ErrorContext(c.ctx, "socket pair failed: ", err)
@@ -315,6 +316,7 @@ func (c *NaiveClient) Start() error {
 			}
 		}
 
+		c.logger.DebugContext(c.ctx, "relaying UDP connection to ", destination)
 		fd, pipeConn, err := createPacketSocketPair(c.testForceUDPLoopback)
 		if err != nil {
 			c.logger.ErrorContext(c.ctx, "socket pair failed: ", err)

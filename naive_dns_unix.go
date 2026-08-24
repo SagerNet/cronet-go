@@ -5,13 +5,18 @@ package cronet
 import (
 	"net"
 	"os"
+	"runtime"
 	"syscall"
 
 	E "github.com/sagernet/sing/common/exceptions"
 )
 
 func createPacketSocketPair(forceUDPLoopback bool) (cronetFD int, proxyConn net.PacketConn, err error) {
-	if forceUDPLoopback {
+	// XNU creates AF_UNIX SOCK_DGRAM sockets with a 2048-byte send buffer and
+	// a 4096-byte receive buffer; the second queued QUIC-sized datagram
+	// already fails with ENOBUFS, which Cronet maps to a fatal write error on
+	// the QUIC session.
+	if forceUDPLoopback || runtime.GOOS == "darwin" || runtime.GOOS == "ios" {
 		return createUDPLoopbackPair()
 	}
 
@@ -60,6 +65,11 @@ func createUDPLoopbackPair() (cronetFD int, proxyConn net.PacketConn, err error)
 		return -1, nil, err
 	}
 	cronetLocalAddress := cronetConn.LocalAddr().(*net.UDPAddr)
+
+	_ = proxyUDPConn.SetReadBuffer(1024 * 1024)
+	_ = proxyUDPConn.SetWriteBuffer(1024 * 1024)
+	_ = cronetConn.SetReadBuffer(1024 * 1024)
+	_ = cronetConn.SetWriteBuffer(1024 * 1024)
 
 	// Step 3: Connect proxyConn to cronetConn's address using syscall
 	proxyRawConn, err := proxyUDPConn.SyscallConn()

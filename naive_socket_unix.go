@@ -41,6 +41,13 @@ func createSocketPair() (cronetFD int, proxyConn net.Conn, err error) {
 		return -1, nil, E.Cause(err, "create socketpair")
 	}
 
+	// XNU creates AF_UNIX SOCK_STREAM sockets with 8192-byte buffers in both
+	// directions.
+	for _, fd := range fds {
+		_ = syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_SNDBUF, 256*1024)
+		_ = syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_RCVBUF, 256*1024)
+	}
+
 	syscall.CloseOnExec(fds[0])
 
 	file := os.NewFile(uintptr(fds[1]), "cronet-socketpair")
