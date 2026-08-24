@@ -678,8 +678,9 @@ func TestDNSInterceptionDefaultPath(t *testing.T) {
 func TestNaiveInsecureConcurrencySessionCount(t *testing.T) {
 	env := setupTestEnv(t)
 	client := env.newNaiveClient(t, cronet.NaiveClientOptions{
-		InsecureConcurrency: 3,
-		DNSResolver:         localhostDNSResolver(t),
+		InsecureConcurrency:   3,
+		DNSResolver:           localhostDNSResolver(t),
+		TestForceSingleEngine: true,
 	})
 
 	// Start echo servers for each connection

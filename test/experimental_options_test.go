@@ -272,27 +272,6 @@ func TestQUICReceiveWindowDefaults(t *testing.T) {
 		"expected default stream receive window in transport parameters")
 }
 
-func TestQUICInsecureConcurrencyRejected(t *testing.T) {
-	naiveQUICServerPort := reserveUDPPort(t)
-	_, err := cronet.NewNaiveClient(cronet.NaiveClientOptions{
-		ServerAddress:       M.ParseSocksaddrHostPort("127.0.0.1", naiveQUICServerPort),
-		DNSResolver:         localhostDNSResolver(t),
-		QUIC:                true,
-		InsecureConcurrency: 2,
-	})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "insecure concurrency is not supported with QUIC")
-
-	client, err := cronet.NewNaiveClient(cronet.NaiveClientOptions{
-		ServerAddress:       M.ParseSocksaddrHostPort("127.0.0.1", naiveQUICServerPort),
-		DNSResolver:         localhostDNSResolver(t),
-		QUIC:                true,
-		InsecureConcurrency: 1,
-	})
-	require.NoError(t, err)
-	_ = client
-}
-
 func TestHTTP2StreamReceiveWindowCustom(t *testing.T) {
 	const (
 		customStreamWindow            = 32 * 1024 * 1024

@@ -11,6 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/sagernet/sing/common"
 	"github.com/sagernet/sing/common/bufio"
 	E "github.com/sagernet/sing/common/exceptions"
 	F "github.com/sagernet/sing/common/format"
@@ -65,8 +66,9 @@ type NaiveClient struct {
 	quicSessionReceiveWindow uint64
 	counter                  atomic.Uint64
 	started                  chan struct{}
-	engine                   Engine
-	streamEngine             StreamEngine
+	singleEngine             bool
+	engines                  []Engine
+	streamEngines            []StreamEngine
 	activeConnections        sync.WaitGroup
 	proxyWaitGroup           sync.WaitGroup
 	proxyCancel              context.CancelFunc
@@ -89,6 +91,7 @@ type NaiveClientOptions struct {
 	ECHConfigList            []byte
 	ECHQueryServerName       string
 	TestForceUDPLoopback     bool
+	TestForceSingleEngine    bool
 	QUIC                     bool
 	QUICCongestionControl    QUICCongestionControl
 	QUICSessionReceiveWindow uint64
@@ -104,9 +107,6 @@ func NewNaiveClient(config NaiveClientOptions) (*NaiveClient, error) {
 	}
 	if config.DNSResolver == nil {
 		return nil, E.New("DNSResolver is required")
-	}
-	if config.QUIC && config.InsecureConcurrency > 1 {
-		return nil, E.New("insecure concurrency is not supported with QUIC")
 	}
 
 	serverName := config.ServerName
@@ -161,6 +161,7 @@ func NewNaiveClient(config NaiveClientOptions) (*NaiveClient, error) {
 		echConfigList:            config.ECHConfigList,
 		echQueryServerName:       config.ECHQueryServerName,
 		testForceUDPLoopback:     config.TestForceUDPLoopback,
+		singleEngine:             config.TestForceSingleEngine || runtime.GOOS == "ios",
 		quicEnabled:              config.QUIC,
 		quicCongestionControl:    config.QUICCongestionControl,
 		receiveWindow:            config.ReceiveWindow,
@@ -182,15 +183,15 @@ func (c *NaiveClient) Start() error {
 		}
 	}
 
-	engine := NewEngine()
 	var startError error
+	var engines []Engine
 
 	defer func() {
 		if startError != nil {
 			if c.proxyCancel != nil {
 				c.proxyCancel()
 			}
-			if engine.ptr != 0 {
+			for _, engine := range engines {
 				engine.Shutdown()
 				engine.Destroy()
 			}
@@ -198,13 +199,6 @@ func (c *NaiveClient) Start() error {
 			close(c.started)
 		}
 	}()
-
-	if c.trustedRootCertificates != "" {
-		if !engine.SetTrustedRootCertificates(c.trustedRootCertificates) {
-			startError = E.New("failed to set trusted CA certificates")
-			return startError
-		}
-	}
 
 	proxyContext, proxyCancel := context.WithCancel(c.ctx)
 	c.proxyCancel = proxyCancel
@@ -224,7 +218,7 @@ func (c *NaiveClient) Start() error {
 		dnsResolver = wrapDNSResolverWithECH(dnsResolver, c.serverName, echQueryServerName, c.getECHConfigList, c.quicEnabled, c.logger)
 	}
 
-	engine.SetDialer(func(address string, port uint16) int {
+	tcpDialer := Dialer(func(address string, port uint16) int {
 		if address == dnsServerAddress.AddrString() && port == dnsServerAddress.Port {
 			fd, conn, err := createSocketPair()
 			if err != nil {
@@ -274,7 +268,7 @@ func (c *NaiveClient) Start() error {
 		return fd
 	})
 
-	engine.SetUDPDialer(func(address string, port uint16) (fd int, localAddress string, localPort uint16) {
+	udpDialer := UDPDialer(func(address string, port uint16) (fd int, localAddress string, localPort uint16) {
 		if address == dnsServerAddress.AddrString() && port == dnsServerAddress.Port {
 			fd, conn, err := createPacketSocketPair(c.testForceUDPLoopback)
 			if err != nil {
@@ -337,6 +331,44 @@ func (c *NaiveClient) Start() error {
 		return fd, localAddress, localPort
 	})
 
+	engineCount := 1
+	if c.concurrency > 1 && !c.singleEngine {
+		engineCount = c.concurrency
+	}
+	for i := 0; i < engineCount; i++ {
+		var engine Engine
+		engine, startError = c.startEngine(tcpDialer, udpDialer, dnsServerAddress)
+		if startError != nil {
+			return startError
+		}
+		engines = append(engines, engine)
+	}
+
+	c.engines = engines
+	c.streamEngines = common.Map(engines, Engine.StreamEngine)
+
+	c.state.Store(uint32(clientStateRunning))
+	close(c.started)
+	return nil
+}
+
+func (c *NaiveClient) startEngine(tcpDialer Dialer, udpDialer UDPDialer, dnsServerAddress M.Socksaddr) (Engine, error) {
+	engine := NewEngine()
+	destroyEngine := func() {
+		engine.Shutdown()
+		engine.Destroy()
+	}
+
+	if c.trustedRootCertificates != "" {
+		if !engine.SetTrustedRootCertificates(c.trustedRootCertificates) {
+			destroyEngine()
+			return Engine{}, E.New("failed to set trusted CA certificates")
+		}
+	}
+
+	engine.SetDialer(tcpDialer)
+	engine.SetUDPDialer(udpDialer)
+
 	params := NewEngineParams()
 	if c.quicEnabled {
 		params.SetEnableQuic(true)
@@ -345,73 +377,68 @@ func (c *NaiveClient) Start() error {
 		params.SetEnableHTTP2(true)
 	}
 
-	startError = params.SetAsyncDNS(true)
-	if startError != nil {
-		return startError
+	paramsError := params.SetAsyncDNS(true)
+	if paramsError == nil {
+		paramsError = params.SetDNSServerOverride([]string{dnsServerAddress.String()})
 	}
-	startError = params.SetDNSServerOverride([]string{dnsServerAddress.String()})
-	if startError != nil {
-		return startError
+	if paramsError == nil {
+		paramsError = params.SetUseDnsHttpsSvcb(c.echEnabled)
 	}
-
-	startError = params.SetUseDnsHttpsSvcb(c.echEnabled)
-	if startError != nil {
-		return startError
-	}
-
-	if c.quicEnabled {
-		streamReceiveWindow := c.receiveWindow
-		if streamReceiveWindow == 0 {
-			streamReceiveWindow = 6 * 1024 * 1024
-		}
-		sessionReceiveWindow := c.quicSessionReceiveWindow
-		if sessionReceiveWindow == 0 {
-			sessionReceiveWindow = 15 * 1024 * 1024
-		}
-		startError = params.SetQUICOptions(string(c.quicCongestionControl), streamReceiveWindow, sessionReceiveWindow)
-		if startError != nil {
-			return startError
-		}
-	} else {
-		receiveWindow := c.receiveWindow
-		if receiveWindow == 0 {
-			if runtime.GOOS == "ios" {
-				receiveWindow = 4 * 1024 * 1024
-			} else {
-				receiveWindow = 128 * 1024 * 1024
+	if paramsError == nil {
+		if c.quicEnabled {
+			streamReceiveWindow := c.receiveWindow
+			if streamReceiveWindow == 0 {
+				streamReceiveWindow = 6 * 1024 * 1024
 			}
-		}
-		startError = params.SetHTTP2Options(receiveWindow, receiveWindow/2)
-		if startError != nil {
-			return startError
+			sessionReceiveWindow := c.quicSessionReceiveWindow
+			if sessionReceiveWindow == 0 {
+				sessionReceiveWindow = 15 * 1024 * 1024
+			}
+			paramsError = params.SetQUICOptions(string(c.quicCongestionControl), streamReceiveWindow, sessionReceiveWindow)
+		} else {
+			receiveWindow := c.receiveWindow
+			if receiveWindow == 0 {
+				if runtime.GOOS == "ios" {
+					receiveWindow = 4 * 1024 * 1024
+				} else {
+					receiveWindow = 128 * 1024 * 1024
+				}
+			}
+			paramsError = params.SetHTTP2Options(receiveWindow, receiveWindow/2)
 		}
 	}
-
-	startError = params.SetSocketPoolOptions(2048, 2048, 2040)
-	if startError != nil {
-		return startError
+	if paramsError == nil {
+		paramsError = params.SetSocketPoolOptions(2048, 2048, 2040)
+	}
+	if paramsError != nil {
+		params.Destroy()
+		destroyEngine()
+		return Engine{}, paramsError
 	}
 
 	result := engine.StartWithParams(params)
 	params.Destroy()
 	if result != ResultSuccess {
-		startError = E.New("failed to start engine: ", int(result))
-		return startError
+		destroyEngine()
+		return Engine{}, E.New("failed to start engine: ", int(result))
 	}
-
-	c.engine = engine
-	c.streamEngine = engine.StreamEngine()
-
-	c.state.Store(uint32(clientStateRunning))
-	close(c.started)
-	return nil
+	return engine, nil
 }
 
 func (c *NaiveClient) Engine() Engine {
 	if clientState(c.state.Load()) != clientStateRunning {
 		return Engine{}
 	}
-	return c.engine
+	return c.engines[0]
+}
+
+func (c *NaiveClient) CloseAllConnections() {
+	if clientState(c.state.Load()) != clientStateRunning {
+		return
+	}
+	for _, engine := range c.engines {
+		engine.CloseAllConnections()
+	}
 }
 
 func (c *NaiveClient) DialEarly(ctx context.Context, destination M.Socksaddr) (NaiveConn, error) {
@@ -444,11 +471,16 @@ func (c *NaiveClient) DialEarly(ctx context.Context, destination M.Socksaddr) (N
 		headers[key] = value
 	}
 
+	streamEngine := c.streamEngines[0]
 	if c.concurrency > 1 {
 		concurrencyIndex := int(c.counter.Add(1) % uint64(c.concurrency))
-		headers["-network-isolation-key"] = F.ToString("https://pool-", concurrencyIndex, ":443")
+		if len(c.streamEngines) > 1 {
+			streamEngine = c.streamEngines[concurrencyIndex]
+		} else {
+			headers["-network-isolation-key"] = F.ToString("https://pool-", concurrencyIndex, ":443")
+		}
 	}
-	conn := c.streamEngine.CreateConn(ctx, c.logger, true, false)
+	conn := streamEngine.CreateConn(ctx, c.logger, true, false)
 	err := conn.Start("CONNECT", c.serverURL, headers, 0, false)
 	if err != nil {
 		return nil, err
@@ -520,11 +552,15 @@ func (c *NaiveClient) doClose() error {
 		c.proxyCancel()
 	}
 
-	c.engine.CloseAllConnections()
+	for _, engine := range c.engines {
+		engine.CloseAllConnections()
+	}
 	c.proxyWaitGroup.Wait()
 	c.activeConnections.Wait()
-	c.engine.Shutdown()
-	c.engine.Destroy()
+	for _, engine := range c.engines {
+		engine.Shutdown()
+		engine.Destroy()
+	}
 
 	c.state.Store(uint32(clientStateClosed))
 	return nil
