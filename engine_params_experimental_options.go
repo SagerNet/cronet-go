@@ -82,10 +82,20 @@ func (p EngineParams) SetHTTP2Options(sessionMaxReceiveWindowSize, initialWindow
 	})
 }
 
-func (p EngineParams) SetQUICOptions(connectionOptions string, initialStreamRecvWindowSize, initialSessionRecvWindowSize uint64) error {
+// SetQUICOptions configures Cronet's QUIC parameters.
+//
+// connectionOptions is advertised to the server as the QUIC COPT tag list and only
+// selects behavior on the peer; client_connection_options is never serialized and is
+// the only tag list QUICHE consults for local client behavior, including the send-side
+// congestion control algorithm (QuicConfig::HasClientRequestedIndependentOption reads
+// client_connection_options_ when the perspective is client).
+func (p EngineParams) SetQUICOptions(connectionOptions string, clientConnectionOptions string, initialStreamRecvWindowSize, initialSessionRecvWindowSize uint64) error {
 	options := map[string]any{}
 	if connectionOptions != "" {
 		options["connection_options"] = connectionOptions
+	}
+	if clientConnectionOptions != "" {
+		options["client_connection_options"] = clientConnectionOptions
 	}
 	if initialStreamRecvWindowSize > 0 {
 		options["initial_stream_recv_window_size"] = initialStreamRecvWindowSize

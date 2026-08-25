@@ -28,8 +28,11 @@ const (
 	QUICCongestionControlDefault QUICCongestionControl = ""
 	QUICCongestionControlBBR     QUICCongestionControl = "TBBR"
 	QUICCongestionControlBBRv2   QUICCongestionControl = "B2ON"
-	QUICCongestionControlCubic   QUICCongestionControl = "QBIC"
-	QUICCongestionControlReno    QUICCongestionControl = "RENO"
+	// QUICHE selects Cubic on the QBIC tag only when the quic_default_to_bbr
+	// reloadable flag is set, and Chromium builds it with that flag false; CQBC
+	// is the client-only tag QuicSentPacketManager honors unconditionally.
+	QUICCongestionControlCubic QUICCongestionControl = "CQBC"
+	QUICCongestionControlReno  QUICCongestionControl = "RENO"
 )
 
 type clientState uint32
@@ -394,7 +397,7 @@ func (c *NaiveClient) startEngine(tcpDialer Dialer, udpDialer UDPDialer, dnsServ
 			if sessionReceiveWindow == 0 {
 				sessionReceiveWindow = 15 * 1024 * 1024
 			}
-			paramsError = params.SetQUICOptions(string(c.quicCongestionControl), streamReceiveWindow, sessionReceiveWindow)
+			paramsError = params.SetQUICOptions("", string(c.quicCongestionControl), streamReceiveWindow, sessionReceiveWindow)
 		} else {
 			receiveWindow := c.receiveWindow
 			if receiveWindow == 0 {

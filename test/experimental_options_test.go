@@ -340,3 +340,92 @@ func TestHTTP2StreamReceiveWindowCustom(t *testing.T) {
 	require.True(t, found,
 		"expected session WINDOW_UPDATE with stream_id=0 and delta=%d", expectedDelta)
 }
+
+func parseQUICCongestionControlConfigured(t *testing.T, logContent []byte) []string {
+	t.Helper()
+	var netLog netLogData
+	err := json.Unmarshal(logContent, &netLog)
+	require.NoError(t, err)
+
+	eventType, ok := netLog.Constants.LogEventTypes["QUIC_CONGESTION_CONTROL_CONFIGURED"]
+	require.True(t, ok, "QUIC_CONGESTION_CONTROL_CONFIGURED not in netlog constants")
+
+	var types []string
+	for _, event := range netLog.Events {
+		if event.Type != eventType {
+			continue
+		}
+		var params struct {
+			CongestionControlType string `json:"congestion_control_type"`
+		}
+		err = json.Unmarshal(event.Params, &params)
+		require.NoError(t, err)
+		types = append(types, params.CongestionControlType)
+	}
+	return types
+}
+
+func TestQUICCongestionControl(t *testing.T) {
+	for _, testCase := range []struct {
+		name              string
+		congestionControl cronet.QUICCongestionControl
+		expected          string
+	}{
+		{"default", cronet.QUICCongestionControlDefault, "CUBIC_BYTES"},
+		{"bbr", cronet.QUICCongestionControlBBR, "BBR"},
+		{"bbr2", cronet.QUICCongestionControlBBRv2, "BBRv2"},
+		{"cubic", cronet.QUICCongestionControlCubic, "CUBIC_BYTES"},
+		{"reno", cronet.QUICCongestionControlReno, "RENO_BYTES"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			naiveQUICServerPort := reserveUDPPort(t)
+			caPem, certPem, keyPem := generateCertificate(t, "example.org")
+			caPemContent, err := os.ReadFile(caPem)
+			require.NoError(t, err)
+
+			startNaiveQUICServer(t, certPem, keyPem, naiveQUICServerPort)
+
+			client, err := cronet.NewNaiveClient(cronet.NaiveClientOptions{
+				ServerAddress:           M.ParseSocksaddrHostPort("127.0.0.1", naiveQUICServerPort),
+				ServerName:              "example.org",
+				Username:                "test",
+				Password:                "test",
+				TrustedRootCertificates: string(caPemContent),
+				DNSResolver:             localhostDNSResolverWithHTTPSResponse(t, naiveQUICServerPort, []string{"h3"}),
+				QUIC:                    true,
+				QUICCongestionControl:   testCase.congestionControl,
+			})
+			require.NoError(t, err)
+			require.NoError(t, client.Start())
+			t.Cleanup(func() { client.Close() })
+
+			echoPort := reserveTCPPort(t)
+			startEchoServer(t, echoPort)
+
+			netLogPath := startNetLogForTest(t, client, "quic_congestion_control_"+testCase.name+".json", true)
+
+			conn, err := client.DialEarly(context.Background(), M.ParseSocksaddrHostPort("127.0.0.1", echoPort))
+			require.NoError(t, err)
+
+			testData := []byte("quic congestion control test")
+			_, err = conn.Write(testData)
+			require.NoError(t, err)
+			buf := make([]byte, len(testData))
+			_, err = io.ReadFull(conn, buf)
+			require.NoError(t, err)
+			require.Equal(t, testData, buf)
+
+			conn.Close()
+			client.Engine().StopNetLog()
+
+			logContent, err := os.ReadFile(netLogPath)
+			require.NoError(t, err)
+
+			types := parseQUICCongestionControlConfigured(t, logContent)
+			require.NotEmpty(t, types, "expected QUIC_CONGESTION_CONTROL_CONFIGURED event in netlog")
+			for _, congestionControlType := range types {
+				require.Equal(t, testCase.expected, congestionControlType)
+			}
+		})
+	}
+}
