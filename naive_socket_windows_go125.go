@@ -10,12 +10,9 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"golang.org/x/sys/windows"
-)
+	E "github.com/sagernet/sing/common/exceptions"
 
-var (
-	winsockSystemLibrary = windows.NewLazySystemDLL("ws2_32.dll")
-	winsockProcAccept    = winsockSystemLibrary.NewProc("accept")
+	"golang.org/x/sys/windows"
 )
 
 func createSocketPair() (cronetFD int, proxyConn net.Conn, err error) {
@@ -26,113 +23,66 @@ func createSocketPair() (cronetFD int, proxyConn net.Conn, err error) {
 	return createTCPLoopbackSocketPair()
 }
 
+// createUnixSocketPair accepts the proxy end through net.Listen instead of the
+// Winsock accept function, so that the accepted socket is owned by the net package
+// and released with closesocket. os.NewFile marks a handle as a file, and closing
+// such a file calls CloseHandle, which frees the handle value without releasing the
+// Winsock state behind it; getsockopt(SO_PROTOCOL_INFO) on a socket that later
+// receives the same handle value then reports the released AF_UNIX SOCK_STREAM
+// socket, and Cronet applies its length-prefixed framing to a plain UDP socket.
+//
+// Windows has no abstract socket namespace, so the listener is bound to a file
+// under the temporary directory.
 func createUnixSocketPair() (cronetFD int, proxyConn net.Conn, err error) {
 	socketSuffix, err := randomHexString(8)
 	if err != nil {
 		return -1, nil, err
 	}
-	socketBaseName := "cronet-go-" + strconv.Itoa(os.Getpid()) + "-" + socketSuffix + ".sock"
-
-	candidates := []string{
-		"@" + socketBaseName,
+	name := filepath.Join(os.TempDir(), "cronet-go-"+strconv.Itoa(os.Getpid())+"-"+socketSuffix+".sock")
+	if len(name) >= windows.UNIX_PATH_MAX {
+		return -1, nil, E.New("unix socket path too long: ", name)
 	}
+	_ = os.Remove(name)
 
-	temporaryPathCandidate := filepath.Join(os.TempDir(), socketBaseName)
-	if len(temporaryPathCandidate) < windows.UNIX_PATH_MAX {
-		candidates = append(candidates, temporaryPathCandidate)
-	}
-
-	var lastError error
-	for _, name := range candidates {
-		cronetFD, proxyConn, lastError = createUnixSocketPairWithName(name)
-		if lastError == nil {
-			return cronetFD, proxyConn, nil
-		}
-	}
-	return -1, nil, lastError
-}
-
-func createUnixSocketPairWithName(name string) (cronetFD int, proxyConn net.Conn, err error) {
-	if name != "" && name[0] != '@' {
-		_ = os.Remove(name)
-	}
-
-	listenerSocket, err := windows.Socket(windows.AF_UNIX, windows.SOCK_STREAM, 0)
+	listener, err := net.Listen("unix", name)
 	if err != nil {
 		return -1, nil, err
 	}
-	listenerClosed := false
-	closeListenerSocket := func() {
-		if listenerClosed {
-			return
-		}
-		listenerClosed = true
-		_ = windows.Closesocket(listenerSocket)
-	}
-	defer closeListenerSocket()
-
-	listenerAddress := &windows.SockaddrUnix{Name: name}
-	err = windows.Bind(listenerSocket, listenerAddress)
-	if err != nil {
-		return -1, nil, err
-	}
-	err = windows.Listen(listenerSocket, 1)
-	if err != nil {
-		return -1, nil, err
-	}
+	defer listener.Close()
 
 	clientSocket, err := windows.Socket(windows.AF_UNIX, windows.SOCK_STREAM, 0)
 	if err != nil {
 		return -1, nil, err
 	}
-	closeClientSocket := func() {
-		_ = windows.Closesocket(clientSocket)
-	}
 
-	acceptedDone := make(chan struct{})
-	var acceptedSocket windows.Handle
-	var acceptError error
+	type acceptResult struct {
+		conn net.Conn
+		err  error
+	}
+	acceptedChannel := make(chan acceptResult, 1)
 	go func() {
-		defer close(acceptedDone)
-		r1, _, callError := winsockProcAccept.Call(uintptr(listenerSocket), 0, 0)
-		if uintptr(r1) == uintptr(^uintptr(0)) {
-			acceptError = callError
-			return
-		}
-		acceptedSocket = windows.Handle(r1)
+		conn, acceptError := listener.Accept()
+		acceptedChannel <- acceptResult{conn: conn, err: acceptError}
 	}()
 
-	connectError := windows.Connect(clientSocket, listenerAddress)
+	connectError := windows.Connect(clientSocket, &windows.SockaddrUnix{Name: name})
 	if connectError != nil {
-		closeListenerSocket()
-		closeClientSocket()
-		<-acceptedDone
-		if acceptedSocket != 0 {
-			_ = windows.Closesocket(acceptedSocket)
+		_ = windows.Closesocket(clientSocket)
+		_ = listener.Close()
+		accepted := <-acceptedChannel
+		if accepted.conn != nil {
+			_ = accepted.conn.Close()
 		}
 		return -1, nil, connectError
 	}
 
-	<-acceptedDone
-	if acceptError != nil {
-		closeClientSocket()
-		return -1, nil, acceptError
+	accepted := <-acceptedChannel
+	if accepted.err != nil {
+		_ = windows.Closesocket(clientSocket)
+		return -1, nil, accepted.err
 	}
 
-	closeListenerSocket()
-	if name != "" && name[0] != '@' {
-		_ = os.Remove(name)
-	}
-
-	file := os.NewFile(uintptr(acceptedSocket), "unix")
-	proxyConn, err = net.FileConn(file)
-	file.Close()
-	if err != nil {
-		closeClientSocket()
-		return -1, nil, err
-	}
-
-	return int(clientSocket), proxyConn, nil
+	return int(clientSocket), accepted.conn, nil
 }
 
 func randomHexString(byteCount int) (string, error) {
