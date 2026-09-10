@@ -57,7 +57,10 @@ func init() {
 
 		return fd
 	})
-	socketCloseCallback = purego.NewCallback(notifySocketClose)
+	socketCloseCallback = purego.NewCallback(func(socketID uint64) uintptr {
+		notifySocketClose(socketID)
+		return 0
+	})
 }
 
 func NewEngine() Engine {
