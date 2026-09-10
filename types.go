@@ -299,6 +299,8 @@ type Dialer func(address string, port uint16) int
 //   - fd: socket fd on success, negative net error code on failure
 //   - localAddress: local IP address string (may be empty)
 //   - localPort: local port number
+//   - onClose: optional callback run on Cronet's network thread when the socket
+//     is released, including adoption failure; it must not block.
 //
 // The returned socket can be:
 //   - AF_INET/AF_INET6 SOCK_DGRAM: Standard UDP socket (may be connected)
@@ -306,7 +308,7 @@ type Dialer func(address string, port uint16) int
 //   - AF_UNIX SOCK_STREAM: Unix domain stream socket (Windows, with framing)
 //
 // Cronet will NOT call connect() on the returned socket.
-type UDPDialer func(address string, port uint16) (fd int, localAddress string, localPort uint16)
+type UDPDialer func(address string, port uint16) (fd int, localAddress string, localPort uint16, onClose func())
 
 // INET6_ADDRSTRLEN is 46, including the trailing NUL byte.
 const dialerLocalAddressCapacity = 46

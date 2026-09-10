@@ -271,12 +271,12 @@ func (c *NaiveClient) Start() error {
 		return fd
 	})
 
-	udpDialer := UDPDialer(func(address string, port uint16) (fd int, localAddress string, localPort uint16) {
+	udpDialer := UDPDialer(func(address string, port uint16) (fd int, localAddress string, localPort uint16, onClose func()) {
 		if address == dnsServerAddress.AddrString() && port == dnsServerAddress.Port {
 			fd, conn, err := createPacketSocketPair(c.testForceUDPLoopback)
 			if err != nil {
 				c.logger.ErrorContext(c.ctx, "socket pair failed: ", err)
-				return NetErrorConnectionFailed.Code(), "", 0
+				return NetErrorConnectionFailed.Code(), "", 0, nil
 			}
 			localAddr := M.SocksaddrFromNet(conn.LocalAddr())
 			if localAddr.IsValid() {
@@ -284,11 +284,13 @@ func (c *NaiveClient) Start() error {
 				localPort = localAddr.Port
 			}
 
+			dnsContext, dnsCancel := context.WithCancel(proxyContext)
 			go func() {
-				_ = serveDNSPacketConn(proxyContext, conn, dnsResolver)
+				defer dnsCancel()
+				_ = serveDNSPacketConn(dnsContext, conn, dnsResolver)
 			}()
 
-			return fd, localAddress, localPort
+			return fd, localAddress, localPort, dnsCancel
 		}
 
 		destination := M.ParseSocksaddrHostPort(address, port)
@@ -296,7 +298,7 @@ func (c *NaiveClient) Start() error {
 		conn, err := c.dialer.DialContext(proxyContext, N.NetworkUDP, destination)
 		if err != nil {
 			c.logger.ErrorContext(c.ctx, "open UDP connection to ", destination, ": ", err)
-			return toNetError(err).Code(), "", 0
+			return toNetError(err).Code(), "", 0, nil
 		}
 
 		localAddr := M.SocksaddrFromNet(conn.LocalAddr())
@@ -309,7 +311,7 @@ func (c *NaiveClient) Start() error {
 			fd, duplicateError := dupSocketFD(udpConn)
 			if duplicateError == nil {
 				conn.Close()
-				return fd, localAddress, localPort
+				return fd, localAddress, localPort, nil
 			}
 		}
 
@@ -318,20 +320,22 @@ func (c *NaiveClient) Start() error {
 		if err != nil {
 			c.logger.ErrorContext(c.ctx, "socket pair failed: ", err)
 			conn.Close()
-			return NetErrorConnectionFailed.Code(), "", 0
+			return NetErrorConnectionFailed.Code(), "", 0, nil
 		}
 
 		remoteAddress := M.SocksaddrFromNet(conn.RemoteAddr())
 		packetConn := bufio.NewUnbindPacketConn(conn)
 		pipePacketConn := bufio.NewUnbindPacketConnWithAddr(pipeConn.(net.Conn), remoteAddress)
 
+		relayContext, relayCancel := context.WithCancel(proxyContext)
 		c.proxyWaitGroup.Add(1)
 		go func() {
 			defer c.proxyWaitGroup.Done()
-			_ = bufio.CopyPacketConn(proxyContext, packetConn, pipePacketConn)
+			defer relayCancel()
+			_ = bufio.CopyPacketConn(relayContext, packetConn, pipePacketConn)
 		}()
 
-		return fd, localAddress, localPort
+		return fd, localAddress, localPort, relayCancel
 	})
 
 	engineCount := 1

@@ -8,7 +8,8 @@ package cronet
 // #include <cronet_c.h>
 //
 // extern CRONET_EXPORT intptr_t cronetDialerCallback(void* context, char* address, uint16_t port);
-// extern CRONET_EXPORT intptr_t cronetUdpDialerCallback(void* context, char* address, uint16_t port, char* out_local_address, uint16_t* out_local_port);
+// extern CRONET_EXPORT intptr_t cronetUdpDialerCallback(void* context, char* address, uint16_t port, char* out_local_address, uint16_t* out_local_port, uint64_t* out_socket_id);
+// extern CRONET_EXPORT void cronetSocketCloseCallback(uint64_t socket_id);
 import "C"
 
 import (
@@ -35,14 +36,15 @@ func cronetDialerCallback(context unsafe.Pointer, address *C.char, port C.uint16
 }
 
 //export cronetUdpDialerCallback
-func cronetUdpDialerCallback(context unsafe.Pointer, address *C.char, port C.uint16_t, outLocalAddress *C.char, outLocalPort *C.uint16_t) C.intptr_t {
+func cronetUdpDialerCallback(context unsafe.Pointer, address *C.char, port C.uint16_t, outLocalAddress *C.char, outLocalPort *C.uint16_t, outSocketID *C.uint64_t) C.intptr_t {
 	udpDialerAccess.RLock()
 	dialer, ok := udpDialerMap[uintptr(context)]
 	udpDialerAccess.RUnlock()
 	if !ok {
 		return -104 // ERR_CONNECTION_FAILED
 	}
-	fd, localAddress, localPort := dialer(C.GoString(address), uint16(port))
+	fd, localAddress, localPort, onClose := dialer(C.GoString(address), uint16(port))
+	*outSocketID = C.uint64_t(registerSocketClose(onClose))
 
 	// Write output parameters
 	if outLocalAddress != nil && localAddress != "" && len(localAddress) < dialerLocalAddressCapacity {
@@ -58,18 +60,23 @@ func cronetUdpDialerCallback(context unsafe.Pointer, address *C.char, port C.uin
 	return C.intptr_t(fd)
 }
 
+//export cronetSocketCloseCallback
+func cronetSocketCloseCallback(socketID C.uint64_t) {
+	notifySocketClose(uint64(socketID))
+}
+
 func NewEngine() Engine {
 	return Engine{uintptr(unsafe.Pointer(C.Cronet_Engine_Create()))}
 }
 
 func (e Engine) Destroy() {
+	C.Cronet_Engine_Destroy(C.Cronet_EnginePtr(unsafe.Pointer(e.ptr)))
 	dialerAccess.Lock()
 	delete(dialerMap, e.ptr)
 	dialerAccess.Unlock()
 	udpDialerAccess.Lock()
 	delete(udpDialerMap, e.ptr)
 	udpDialerAccess.Unlock()
-	C.Cronet_Engine_Destroy(C.Cronet_EnginePtr(unsafe.Pointer(e.ptr)))
 }
 
 // StartWithParams starts Engine using given |params|. The engine must be started once
@@ -232,7 +239,7 @@ func (e Engine) SetDialer(dialer Dialer) {
 // Pass nil to disable custom dialing.
 func (e Engine) SetUDPDialer(dialer UDPDialer) {
 	if dialer == nil {
-		C.Cronet_Engine_SetUdpDialer(C.Cronet_EnginePtr(unsafe.Pointer(e.ptr)), nil, nil)
+		C.Cronet_Engine_SetUdpDialer(C.Cronet_EnginePtr(unsafe.Pointer(e.ptr)), nil, nil, nil)
 		udpDialerAccess.Lock()
 		delete(udpDialerMap, e.ptr)
 		udpDialerAccess.Unlock()
@@ -245,5 +252,6 @@ func (e Engine) SetUDPDialer(dialer UDPDialer) {
 		C.Cronet_EnginePtr(unsafe.Pointer(e.ptr)),
 		(*[0]byte)(C.cronetUdpDialerCallback),
 		unsafe.Pointer(e.ptr),
+		(*[0]byte)(C.cronetSocketCloseCallback),
 	)
 }
