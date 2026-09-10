@@ -55,7 +55,7 @@ var (
 	cronetEngineSetMockCertVerifierForTesting func(uintptr, uintptr)
 	cronetEngineCloseAllConnections           func(uintptr)
 	cronetEngineSetDialer                     func(uintptr, uintptr, uintptr)
-	cronetEngineSetUdpDialer                  func(uintptr, uintptr, uintptr)
+	cronetEngineSetUdpDialer                  func(uintptr, uintptr, uintptr, uintptr)
 
 	// EngineParams functions
 	cronetEngineParamsCreate                                              func() uintptr
