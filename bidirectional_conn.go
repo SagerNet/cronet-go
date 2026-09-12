@@ -6,7 +6,6 @@ import (
 	"net"
 	"os"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/sagernet/sing/common/logger"
@@ -17,7 +16,7 @@ type BidirectionalConn struct {
 	ctx              context.Context
 	stream           BidirectionalStream
 	logger           logger.ContextLogger
-	cancelled        atomic.Bool
+	cancelled        bool
 	readWaitHeaders  bool
 	writeWaitHeaders bool
 	access           sync.Mutex
@@ -96,30 +95,31 @@ func (c *BidirectionalConn) Start(method string, url string, headers map[string]
 	return nil
 }
 
-func (c *BidirectionalConn) markTerminatedLocked(err error) (onTerminate func(), marked bool) {
+func (c *BidirectionalConn) cancelLocked() {
+	if c.cancelled {
+		return
+	}
+	c.cancelled = true
+	c.stream.Cancel()
+}
+
+func (c *BidirectionalConn) terminate(err error) {
+	var onTerminate func()
+	c.access.Lock()
 	c.readDoneOnce.Do(func() { close(c.readDone) })
 	c.writeDoneOnce.Do(func() { close(c.writeDone) })
-	c.cancelled.Store(true)
+	c.cancelled = true
 	c.doneOnce.Do(func() {
 		c.err = err
 		close(c.done)
 		onTerminate = c.onTerminate
-		marked = true
+		c.stream.Destroy()
+		cleanupBidirectionalStream(c.stream.ptr)
 	})
-	return
-}
-
-func (c *BidirectionalConn) terminate(err error) {
-	c.access.Lock()
-	onTerminate, marked := c.markTerminatedLocked(err)
 	c.access.Unlock()
 
 	if onTerminate != nil {
 		onTerminate()
-	}
-	if marked {
-		c.stream.Destroy()
-		cleanupBidirectionalStream(c.stream.ptr)
 	}
 }
 
@@ -158,9 +158,9 @@ func (c *BidirectionalConn) Read(p []byte) (n int, err error) {
 	case bytesRead := <-c.read:
 		return bytesRead, nil
 	case <-c.readDeadline.Wait():
-		if c.cancelled.CompareAndSwap(false, true) {
-			c.stream.Cancel()
-		}
+		c.access.Lock()
+		c.cancelLocked()
+		c.access.Unlock()
 		for {
 			select {
 			case <-c.read:
@@ -212,9 +212,9 @@ func (c *BidirectionalConn) Write(p []byte) (n int, err error) {
 	case <-c.write:
 		return len(p), nil
 	case <-c.writeDeadline.Wait():
-		if c.cancelled.CompareAndSwap(false, true) {
-			c.stream.Cancel()
-		}
+		c.access.Lock()
+		c.cancelLocked()
+		c.access.Unlock()
 		for {
 			select {
 			case <-c.write:
@@ -266,11 +266,8 @@ func (c *BidirectionalConn) Close() error {
 	}
 
 	close(c.close)
+	c.cancelLocked()
 	c.access.Unlock()
-
-	if c.cancelled.CompareAndSwap(false, true) {
-		c.stream.Cancel()
-	}
 	return nil
 }
 
