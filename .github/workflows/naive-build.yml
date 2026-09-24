@@ -578,7 +578,11 @@ jobs:
 
       - name: Install iperf3 (Windows)
         if: runner.os == 'Windows'
-        run: choco install iperf3
+        run: |
+          Invoke-WebRequest https://files.budman.xyz/iperf3.20_64.zip -OutFile iperf3.zip
+          if ((Get-FileHash iperf3.zip -Algorithm SHA256).Hash -ne "7F8FABEB885EEB61345F0658D6D0E476248E313CBD182B336AE5AC81FBA5DAED") { throw "iperf3.zip checksum mismatch" }
+          Expand-Archive iperf3.zip -DestinationPath $env:RUNNER_TEMP
+          "$env:RUNNER_TEMP\iperf3.20" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
 
       # CGO mode tests
       - name: Run integration tests (CGO)
