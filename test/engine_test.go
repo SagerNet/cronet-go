@@ -28,5 +28,5 @@ func TestEngineVersion(t *testing.T) {
 	defer engine.Destroy()
 	defer engine.Shutdown()
 
-	require.Equal(t, "150.0.7871.63", engine.Version())
+	require.Equal(t, "154.0.8037.49", engine.Version())
 }

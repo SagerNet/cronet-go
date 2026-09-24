@@ -110,6 +110,8 @@ const (
 	NetErrorProxyUnableToConnectToDestination                     NetError = -186
 	NetErrorProxyDelegateCanceledConnectRequest                   NetError = -187
 	NetErrorProxyDelegateCanceledConnectResponse                  NetError = -188
+	NetErrorControlMsgTooBig                                      NetError = -189
+	NetErrorMulticastNotAllowed                                   NetError = -190
 	NetErrorCertCommonNameInvalid                                 NetError = -200
 	NetErrorCertDateInvalid                                       NetError = -201
 	NetErrorCertAuthorityInvalid                                  NetError = -202
@@ -243,6 +245,7 @@ const (
 	NetErrorDNSNotImplemented                                     NetError = -818
 	NetErrorDNSRefused                                            NetError = -819
 	NetErrorDNSOtherFailure                                       NetError = -820
+	NetErrorDNSDirectOnly                                         NetError = -821
 	NetErrorBlobInvalidConstructionArguments                      NetError = -900
 	NetErrorBlobOutOfMemory                                       NetError = -901
 	NetErrorBlobFileWriteFailed                                   NetError = -902
@@ -259,7 +262,7 @@ type netErrorEntry struct {
 	description string
 }
 
-var netErrorInfo = [245]netErrorEntry{
+var netErrorInfo = [248]netErrorEntry{
 	{NetErrorBlobReferencedFileUnavailable, "ERR_BLOB_REFERENCED_FILE_UNAVAILABLE", "blob referenced file unavailable", "A file that we referenced during construction is not accessible to the renderer trying to create the blob."},
 	{NetErrorBlobReferencedBlobBroken, "ERR_BLOB_REFERENCED_BLOB_BROKEN", "blob referenced blob broken", "A blob that we referenced during construction is broken, or a browser-side builder tries to build a blob with a blob reference that isn't finished constructing."},
 	{NetErrorBlobDereferencedWhileBuilding, "ERR_BLOB_DEREFERENCED_WHILE_BUILDING", "blob dereferenced while building", "The renderer destructed the blob before it was done transferring, and there were no outstanding references (no one is waiting to read) to keep the blob alive."},
@@ -267,6 +270,7 @@ var netErrorInfo = [245]netErrorEntry{
 	{NetErrorBlobFileWriteFailed, "ERR_BLOB_FILE_WRITE_FAILED", "blob file write failed", "We couldn't create or write to a file. File system error, like a full disk."},
 	{NetErrorBlobOutOfMemory, "ERR_BLOB_OUT_OF_MEMORY", "blob out of memory", "We don't have enough memory for the blob."},
 	{NetErrorBlobInvalidConstructionArguments, "ERR_BLOB_INVALID_CONSTRUCTION_ARGUMENTS", "blob invalid construction arguments", "The following errors are for mapped from a subset of invalid storage::BlobStatus. The construction arguments are invalid. This is considered a bad IPC."},
+	{NetErrorDNSDirectOnly, "ERR_DNS_DIRECT_ONLY", "dns direct only", "Declined to call DNS for a direct_only request of a hostname whose traffic would be routed through a proxy."},
 	{NetErrorDNSOtherFailure, "ERR_DNS_OTHER_FAILURE", "dns other failure", "The DNS server responded with an rcode indicating that the request failed, but the rcode is not one that we have a specific error code for. In other words, the rcode was not one of the following: - NOERR - FORMERR - SERVFAIL - NXDOMAIN - NOTIMP - REFUSED"},
 	{NetErrorDNSRefused, "ERR_DNS_REFUSED", "dns refused", "The DNS server responded that the request was refused."},
 	{NetErrorDNSNotImplemented, "ERR_DNS_NOT_IMPLEMENTED", "dns not implemented", "The DNS server responded that the query type is not implemented."},
@@ -400,6 +404,8 @@ var netErrorInfo = [245]netErrorEntry{
 	{NetErrorCertAuthorityInvalid, "ERR_CERT_AUTHORITY_INVALID", "cert authority invalid", "The server responded with a certificate that is signed by an authority we don't trust.  The could mean: 1. An attacker has substituted the real certificate for a cert that contains their public key and is signed by their cousin. 2. The server operator has a legitimate certificate from a CA we don't know about, but should trust. 3. The server is presenting a self-signed certificate, providing no defense against active attackers (but foiling passive attackers)."},
 	{NetErrorCertDateInvalid, "ERR_CERT_DATE_INVALID", "cert date invalid", "The server responded with a certificate that, by our clock, appears to either not yet be valid or to have expired.  This could mean: 1. An attacker is presenting an old certificate for which they have managed to obtain the private key. 2. The server is misconfigured and is not presenting a valid cert. 3. Our clock is wrong."},
 	{NetErrorCertCommonNameInvalid, "ERR_CERT_COMMON_NAME_INVALID", "cert common name invalid", "Certificate error codes The values of certificate error codes must be consecutive. The server responded with a certificate whose common name did not match the host name.  This could mean: 1. An attacker has redirected our traffic to their server and is presenting a certificate for which they know the private key. 2. The server is misconfigured and responding with the wrong cert. 3. The user is on a wireless network and is being redirected to the network's login page. 4. The OS has used a DNS search suffix and the server doesn't have a certificate for the abbreviated name in the address bar."},
+	{NetErrorMulticastNotAllowed, "ERR_MULTICAST_NOT_ALLOWED", "multicast not allowed", "Direct Sockets attempted to connect to or send a packet to a multicast address without 'direct-sockets-multicast' permissions policy."},
+	{NetErrorControlMsgTooBig, "ERR_CONTROL_MSG_TOO_BIG", "control msg too big", "The control message was too large for the transport. (for example a UDP message control data exceeds size threshold)."},
 	{NetErrorProxyDelegateCanceledConnectResponse, "ERR_PROXY_DELEGATE_CANCELED_CONNECT_RESPONSE", "proxy delegate canceled connect response", ""},
 	{NetErrorProxyDelegateCanceledConnectRequest, "ERR_PROXY_DELEGATE_CANCELED_CONNECT_REQUEST", "proxy delegate canceled connect request", "Some implementations of ProxyDelegate query a separate entity to know whether it should cancel tunnel prior to: - The HTTP CONNECT requests being sent out - The HTTP CONNECT response being parsed by //net An example is CronetProxyDelegate: Cronet allows developers to decide whether the tunnel being established should be canceled."},
 	{NetErrorProxyUnableToConnectToDestination, "ERR_PROXY_UNABLE_TO_CONNECT_TO_DESTINATION", "proxy unable to connect to destination", "An attempt to proxy a request failed because the proxy wasn't able to successfully connect to the destination. This likely indicates an issue with the request itself (for instance, the hostname failed to resolve to an IP address or the destination server refused the connection). This error code is used to indicate that the error is outside the control of the proxy server and thus the proxy chain should not be marked as bad. This is in contrast to ERR_TUNNEL_CONNECTION_FAILED which is used for general purpose errors connecting to the proxy and by the proxy request response handling when a proxy delegate doesn't indicate via a different error code whether proxy fallback should occur. Note that for IP Protection proxies this error code causes the proxy to be marked as bad since the preference is to fail open for general purpose errors, but for other proxies this error does not cause the proxy to be marked as bad."},
