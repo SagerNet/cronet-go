@@ -207,11 +207,7 @@ func (c *NaiveClient) Start() error {
 	c.proxyCancel = proxyCancel
 
 	dnsServerAddress := M.ParseSocksaddrHostPort("127.0.0.1", 53)
-	dnsResolver := c.dnsResolver
-
-	if c.serverName != c.serverAddress.AddrString() {
-		dnsResolver = wrapDNSResolverForServerRedirect(dnsResolver, c.serverName, c.serverAddress)
-	}
+	dnsResolver := wrapDNSResolverWithFakeServerAddress(c.dnsResolver, c.serverName)
 
 	if c.echEnabled {
 		echQueryServerName := c.echQueryServerName
@@ -237,6 +233,10 @@ func (c *NaiveClient) Start() error {
 		}
 
 		destination := M.ParseSocksaddrHostPort(address, port)
+		if destination.Addr == fakeServerAddress {
+			destination = c.serverAddress
+			destination.Port = port
+		}
 		c.logger.DebugContext(c.ctx, "open TCP connection to ", destination)
 		conn, err := c.dialer.DialContext(proxyContext, N.NetworkTCP, destination)
 		if err != nil {
@@ -294,6 +294,10 @@ func (c *NaiveClient) Start() error {
 		}
 
 		destination := M.ParseSocksaddrHostPort(address, port)
+		if destination.Addr == fakeServerAddress {
+			destination = c.serverAddress
+			destination.Port = port
+		}
 		c.logger.DebugContext(c.ctx, "open UDP connection to ", destination)
 		conn, err := c.dialer.DialContext(proxyContext, N.NetworkUDP, destination)
 		if err != nil {

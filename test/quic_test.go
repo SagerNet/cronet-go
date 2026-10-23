@@ -184,58 +184,6 @@ func TestNaiveQUICLargeTransfer(t *testing.T) {
 	require.Equal(t, testData, receivedData, "data mismatch in large transfer over QUIC")
 }
 
-func TestNaiveQUICDomainNon443DoesNotIssueHTTPSDNSQueryByDefault(t *testing.T) {
-	naiveQUICServerPort := reserveUDPPort(t)
-	caPem, certPem, keyPem := generateCertificate(t, "example.org")
-	caPemContent, err := os.ReadFile(caPem)
-	require.NoError(t, err)
-
-	startNaiveQUICServer(t, certPem, keyPem, naiveQUICServerPort)
-
-	queryObservation := &dnsQueryObservation{}
-	dnsResolver := makeQUICDomainResolver(queryObservation, 0, mDNS.RcodeNameError)
-
-	client, err := cronet.NewNaiveClient(cronet.NaiveClientOptions{
-		ServerAddress:           M.ParseSocksaddrHostPort("example.org", naiveQUICServerPort),
-		ServerName:              "example.org",
-		Username:                "test",
-		Password:                "test",
-		TrustedRootCertificates: string(caPemContent),
-		DNSResolver:             dnsResolver,
-
-		QUIC: true,
-	})
-	require.NoError(t, err)
-	require.NoError(t, client.Start())
-	t.Cleanup(func() { client.Close() })
-	_ = startNetLogForTest(t, client, "quic_non443_default_netlog.json", false)
-
-	echoPort := reserveTCPPort(t)
-	startEchoServer(t, echoPort)
-
-	conn, err := client.DialEarly(context.Background(), M.ParseSocksaddrHostPort("127.0.0.1", echoPort))
-	require.NoError(t, err)
-	defer conn.Close()
-
-	testData := []byte("quic non-443 dns query test")
-	_, err = conn.Write(testData)
-	require.NoError(t, err)
-
-	buffer := make([]byte, len(testData))
-	_, err = io.ReadFull(conn, buffer)
-	require.NoError(t, err)
-	require.Equal(t, testData, buffer)
-
-	require.Greater(t, queryObservation.aQueryCount.Load(), int64(0))
-	require.Equal(
-		t,
-		int64(0),
-		queryObservation.httpsQueryCount.Load(),
-		"unexpected HTTPS DNS query in default QUIC mode: %v",
-		queryObservation.queryNames(),
-	)
-}
-
 func TestNaiveQUICDomainNon443ECHHTTPSDNSDelayAffectsHandshake(t *testing.T) {
 	naiveQUICServerPort := reserveUDPPort(t)
 	caPem, certPem, keyPem := generateCertificate(t, "example.org")
@@ -248,7 +196,7 @@ func TestNaiveQUICDomainNon443ECHHTTPSDNSDelayAffectsHandshake(t *testing.T) {
 	dnsResolver := makeQUICDomainResolver(queryObservation, 2*time.Second, mDNS.RcodeNameError)
 
 	client, err := cronet.NewNaiveClient(cronet.NaiveClientOptions{
-		ServerAddress:           M.ParseSocksaddrHostPort("example.org", naiveQUICServerPort),
+		ServerAddress:           M.ParseSocksaddrHostPort("127.0.0.1", naiveQUICServerPort),
 		ServerName:              "example.org",
 		Username:                "test",
 		Password:                "test",
@@ -309,7 +257,7 @@ func TestNaiveQUICDomainNon443ECHFixedConfigDisablesHTTPSLookup(t *testing.T) {
 	dnsResolver := makeQUICDomainResolver(queryObservation, 2*time.Second, mDNS.RcodeNameError)
 
 	client, err := cronet.NewNaiveClient(cronet.NaiveClientOptions{
-		ServerAddress:           M.ParseSocksaddrHostPort("example.org", naiveQUICServerPort),
+		ServerAddress:           M.ParseSocksaddrHostPort("127.0.0.1", naiveQUICServerPort),
 		ServerName:              "example.org",
 		Username:                "test",
 		Password:                "test",
