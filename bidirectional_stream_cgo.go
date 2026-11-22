@@ -79,7 +79,7 @@ func (c BidirectionalStream) Start(method string, url string, headers map[string
 	var headerArray C.bidirectional_stream_header_array
 	headerLen := len(headers)
 	if headerLen > 0 {
-		cHeadersPtr := C.malloc(C.size_t(int(C.sizeof_struct_bidirectional_stream_header) * headerLen))
+		cHeadersPtr := C.calloc(C.size_t(headerLen), C.size_t(C.sizeof_struct_bidirectional_stream_header))
 		defer C.free(cHeadersPtr)
 		cType := (*C.bidirectional_stream_header)(cHeadersPtr)
 		cHeaders := unsafe.Slice(cType, headerLen)
