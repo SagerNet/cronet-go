@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"runtime"
+	"slices"
 	"sync"
 	"sync/atomic"
 
@@ -207,6 +208,7 @@ func (c *NaiveClient) Start() error {
 	c.proxyCancel = proxyCancel
 
 	dnsServerAddress := M.ParseSocksaddrHostPort("127.0.0.1", 53)
+	serverNameAddress := M.ParseAddr(c.serverName)
 	dnsResolver := wrapDNSResolverWithFakeServerAddress(c.dnsResolver, c.serverName)
 
 	if c.echEnabled {
@@ -233,7 +235,7 @@ func (c *NaiveClient) Start() error {
 		}
 
 		destination := M.ParseSocksaddrHostPort(address, port)
-		if destination.Addr == fakeServerAddress {
+		if slices.Contains(fakeServerAddresses, destination.Addr) {
 			destination = c.serverAddress
 			destination.Port = port
 		}
@@ -294,7 +296,21 @@ func (c *NaiveClient) Start() error {
 		}
 
 		destination := M.ParseSocksaddrHostPort(address, port)
-		if destination.Addr == fakeServerAddress {
+		isFakeServerAddress := slices.Contains(fakeServerAddresses, destination.Addr)
+		// Chromium skips AAAA queries unless a UDP connect to
+		// [2001:4860:4860::8888]:443 through the custom dialer succeeds; with no
+		// local address reported, the socket reports the peer address as local,
+		// which passes the reachability check.
+		if !c.quicEnabled || !isFakeServerAddress && destination.Addr != serverNameAddress {
+			fd, conn, err := createPacketSocketPair(c.testForceUDPLoopback)
+			if err != nil {
+				c.logger.ErrorContext(c.ctx, "socket pair failed: ", err)
+				return NetErrorConnectionFailed.Code(), "", 0, nil
+			}
+			conn.Close()
+			return fd, "", 0, nil
+		}
+		if isFakeServerAddress {
 			destination = c.serverAddress
 			destination.Port = port
 		}

@@ -34,7 +34,26 @@ type DNSResolverFunc func(ctx context.Context, request *mDNS.Msg) (response *mDN
 
 const chromiumDNSUDPMaxSize = 512
 
-var fakeServerAddress = netip.AddrFrom4([4]byte{192, 0, 2, 1})
+var (
+	fakeServerAddress4        = netip.AddrFrom4([4]byte{192, 0, 2, 1})
+	fakeServerAddress6        = netip.AddrFrom16([16]byte{0x20, 0x01, 0x0d, 0xb8, 15: 1})
+	fakeServerAddressLoopback = netip.AddrFrom4([4]byte{127, 0, 0, 1})
+	fakeServerAddresses       = []netip.Addr{fakeServerAddress4, fakeServerAddress6, fakeServerAddressLoopback}
+)
+
+// Chromium's AddressSorterPosix connects a kernel UDP socket to every resolved
+// address through the default socket factory, bypassing the custom dialers,
+// and drops the addresses whose connect fails.
+func selectFakeServerAddress() netip.Addr {
+	for _, address := range []netip.Addr{fakeServerAddress4, fakeServerAddress6} {
+		conn, err := net.DialUDP("udp", nil, net.UDPAddrFromAddrPort(netip.AddrPortFrom(address, 443)))
+		if err == nil {
+			conn.Close()
+			return address
+		}
+	}
+	return fakeServerAddressLoopback
+}
 
 func serveDNSPacketConn(ctx context.Context, conn net.PacketConn, resolver DNSResolverFunc) error {
 	defer conn.Close()
@@ -410,16 +429,18 @@ func wrapDNSResolverWithFakeServerAddress(resolver DNSResolverFunc, serverName s
 		}
 		response := new(mDNS.Msg)
 		response.SetReply(request)
-		if question.Qtype == mDNS.TypeA {
-			response.Answer = append(response.Answer, &mDNS.A{
-				Hdr: mDNS.RR_Header{
-					Name:   question.Name,
-					Rrtype: mDNS.TypeA,
-					Class:  mDNS.ClassINET,
-					Ttl:    300,
-				},
-				A: fakeServerAddress.AsSlice(),
-			})
+		fakeAddress := selectFakeServerAddress()
+		header := mDNS.RR_Header{
+			Name:   question.Name,
+			Rrtype: question.Qtype,
+			Class:  mDNS.ClassINET,
+			Ttl:    300,
+		}
+		switch {
+		case question.Qtype == mDNS.TypeA && fakeAddress.Is4():
+			response.Answer = append(response.Answer, &mDNS.A{Hdr: header, A: fakeAddress.AsSlice()})
+		case question.Qtype == mDNS.TypeAAAA && fakeAddress.Is6():
+			response.Answer = append(response.Answer, &mDNS.AAAA{Hdr: header, AAAA: fakeAddress.AsSlice()})
 		}
 		return response
 	}
