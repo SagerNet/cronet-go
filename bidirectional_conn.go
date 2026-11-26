@@ -14,6 +14,7 @@ import (
 
 type BidirectionalConn struct {
 	ctx              context.Context
+	abortContext     context.Context
 	stream           BidirectionalStream
 	logger           logger.ContextLogger
 	cancelled        bool
@@ -43,6 +44,7 @@ type BidirectionalConn struct {
 func (e StreamEngine) CreateConn(ctx context.Context, l logger.ContextLogger, readWaitHeaders bool, writeWaitHeaders bool) *BidirectionalConn {
 	conn := &BidirectionalConn{
 		ctx:              ctx,
+		abortContext:     context.Background(),
 		logger:           l,
 		readWaitHeaders:  readWaitHeaders,
 		writeWaitHeaders: writeWaitHeaders,
@@ -75,12 +77,20 @@ func (c *BidirectionalConn) waitReady(waitHeaders bool, deadline <-chan struct{}
 	select {
 	case <-gate:
 		return nil
+	default:
+	}
+	select {
+	case <-gate:
+		return nil
 	case <-c.done:
 		return c.err
 	case <-c.close:
 		return net.ErrClosed
 	case <-deadline:
 		return os.ErrDeadlineExceeded
+	case <-c.abortContext.Done():
+		c.Close()
+		return c.abortContext.Err()
 	}
 }
 
@@ -296,17 +306,15 @@ func (c *BidirectionalConn) SetWriteDeadline(t time.Time) error {
 }
 
 func (c *BidirectionalConn) WaitForHeaders() (map[string]string, error) {
-	select {
-	case <-c.handshake:
-		return c.headers, nil
-	case <-c.done:
-		return nil, c.err
-	case <-c.close:
-		return nil, net.ErrClosed
-	}
+	return c.WaitForHeadersContext(context.Background())
 }
 
 func (c *BidirectionalConn) WaitForHeadersContext(ctx context.Context) (map[string]string, error) {
+	select {
+	case <-c.handshake:
+		return c.headers, nil
+	default:
+	}
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -316,6 +324,9 @@ func (c *BidirectionalConn) WaitForHeadersContext(ctx context.Context) (map[stri
 		return nil, c.err
 	case <-c.close:
 		return nil, net.ErrClosed
+	case <-c.abortContext.Done():
+		c.Close()
+		return nil, c.abortContext.Err()
 	}
 }
 

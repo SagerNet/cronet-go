@@ -284,6 +284,8 @@ const (
 // address: IP address string (e.g. "1.2.3.4" or "::1")
 // port: Port number
 // Returns: connected socket fd on success, negative net error code on failure.
+// Called on a Cronet thread pool worker; it may block until the connection is
+// established. A socket returned after the request was abandoned is closed.
 // Common error codes:
 //
 //	ERR_CONNECTION_REFUSED (-102)
@@ -299,8 +301,11 @@ type Dialer func(address string, port uint16) int
 //   - fd: socket fd on success, negative net error code on failure
 //   - localAddress: local IP address string (may be empty)
 //   - localPort: local port number
-//   - onClose: optional callback run on Cronet's network thread when the socket
-//     is released, including adoption failure; it must not block.
+//   - onClose: optional callback run on a Cronet thread when the socket is
+//     released, including adoption failure and abandoned connects; it must not
+//     block.
+//
+// Called on a Cronet thread pool worker for asynchronous connects; it may block.
 //
 // The returned socket can be:
 //   - AF_INET/AF_INET6 SOCK_DGRAM: Standard UDP socket (may be connected)

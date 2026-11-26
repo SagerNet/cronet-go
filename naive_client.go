@@ -75,7 +75,12 @@ type NaiveClient struct {
 	streamEngines            []StreamEngine
 	activeConnections        sync.WaitGroup
 	proxyWaitGroup           sync.WaitGroup
+	proxyContext             context.Context
 	proxyCancel              context.CancelFunc
+	dialAccess               sync.Mutex
+	dialWaitGroup            sync.WaitGroup
+	dialContext              context.Context
+	dialCancel               context.CancelFunc
 }
 
 type NaiveClientOptions struct {
@@ -205,7 +210,9 @@ func (c *NaiveClient) Start() error {
 	}()
 
 	proxyContext, proxyCancel := context.WithCancel(c.ctx)
+	c.proxyContext = proxyContext
 	c.proxyCancel = proxyCancel
+	c.dialContext, c.dialCancel = context.WithCancel(proxyContext)
 
 	dnsServerAddress := M.ParseSocksaddrHostPort("127.0.0.1", 53)
 	serverNameAddress := M.ParseAddr(c.serverName)
@@ -220,6 +227,12 @@ func (c *NaiveClient) Start() error {
 	}
 
 	tcpDialer := Dialer(func(address string, port uint16) int {
+		dialContext, loaded := c.beginDial()
+		if !loaded {
+			return NetErrorAborted.Code()
+		}
+		defer c.dialWaitGroup.Done()
+
 		if address == dnsServerAddress.AddrString() && port == dnsServerAddress.Port {
 			fd, conn, err := createSocketPair()
 			if err != nil {
@@ -240,7 +253,7 @@ func (c *NaiveClient) Start() error {
 			destination.Port = port
 		}
 		c.logger.DebugContext(c.ctx, "open TCP connection to ", destination)
-		conn, err := c.dialer.DialContext(proxyContext, N.NetworkTCP, destination)
+		conn, err := c.dialer.DialContext(dialContext, N.NetworkTCP, destination)
 		if err != nil {
 			c.logger.ErrorContext(c.ctx, "open TCP connection to ", destination, ": ", err)
 			return toNetError(err).Code()
@@ -274,6 +287,12 @@ func (c *NaiveClient) Start() error {
 	})
 
 	udpDialer := UDPDialer(func(address string, port uint16) (fd int, localAddress string, localPort uint16, onClose func()) {
+		dialContext, loaded := c.beginDial()
+		if !loaded {
+			return NetErrorAborted.Code(), "", 0, nil
+		}
+		defer c.dialWaitGroup.Done()
+
 		if address == dnsServerAddress.AddrString() && port == dnsServerAddress.Port {
 			fd, conn, err := createPacketSocketPair(c.testForceUDPLoopback)
 			if err != nil {
@@ -315,7 +334,7 @@ func (c *NaiveClient) Start() error {
 			destination.Port = port
 		}
 		c.logger.DebugContext(c.ctx, "open UDP connection to ", destination)
-		conn, err := c.dialer.DialContext(proxyContext, N.NetworkUDP, destination)
+		conn, err := c.dialer.DialContext(dialContext, N.NetworkUDP, destination)
 		if err != nil {
 			c.logger.ErrorContext(c.ctx, "open UDP connection to ", destination, ": ", err)
 			return toNetError(err).Code(), "", 0, nil
@@ -463,6 +482,10 @@ func (c *NaiveClient) CloseAllConnections() {
 	if clientState(c.state.Load()) != clientStateRunning {
 		return
 	}
+	c.dialAccess.Lock()
+	c.dialCancel()
+	c.dialContext, c.dialCancel = context.WithCancel(c.proxyContext)
+	c.dialAccess.Unlock()
 	for _, engine := range c.engines {
 		engine.CloseAllConnections()
 	}
@@ -512,6 +535,7 @@ func (c *NaiveClient) DialEarly(ctx context.Context, destination M.Socksaddr) (N
 	if err != nil {
 		return nil, err
 	}
+	conn.abortContext = c.loadDialContext()
 	trackedConn := &trackedNaiveConn{
 		NaiveConn: NewNaiveConn(ctx, conn, c.logger),
 		client:    c,
@@ -575,9 +599,10 @@ func (c *NaiveClient) Close() error {
 }
 
 func (c *NaiveClient) doClose() error {
-	if c.proxyCancel != nil {
-		c.proxyCancel()
-	}
+	c.dialAccess.Lock()
+	c.proxyCancel()
+	c.dialAccess.Unlock()
+	c.dialWaitGroup.Wait()
 
 	for _, engine := range c.engines {
 		engine.CloseAllConnections()
@@ -591,6 +616,22 @@ func (c *NaiveClient) doClose() error {
 
 	c.state.Store(uint32(clientStateClosed))
 	return nil
+}
+
+func (c *NaiveClient) loadDialContext() context.Context {
+	c.dialAccess.Lock()
+	defer c.dialAccess.Unlock()
+	return c.dialContext
+}
+
+func (c *NaiveClient) beginDial() (context.Context, bool) {
+	c.dialAccess.Lock()
+	defer c.dialAccess.Unlock()
+	if c.proxyContext.Err() != nil {
+		return nil, false
+	}
+	c.dialWaitGroup.Add(1)
+	return c.dialContext, true
 }
 
 func (c *NaiveClient) getECHConfigList() []byte {
